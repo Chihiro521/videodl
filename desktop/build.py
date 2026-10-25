@@ -124,6 +124,19 @@ def assert_public_archive():
     return checked
 
 
+def isolated_environment(stage: Path, tools: Path):
+    environment = os.environ.copy()
+    system = Path(os.environ.get("SystemRoot", "C:/Windows"))
+    # Native dependency discovery must not pick up DLLs from other installed apps.
+    search = [Path(sys.executable).parent, Path(sys.base_prefix), Path(sys.base_prefix) / "DLLs", tools, system / "System32", system]
+    environment["PATH"] = os.pathsep.join(str(path) for path in search)
+    environment["PYTHONPATH"] = str(stage)
+    environment["VIDEODL_BUILD_TOOLS"] = str(tools)
+    for key in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QML2_IMPORT_PATH"):
+        environment.pop(key, None)
+    return environment
+
+
 def media_tools():
     config = json.loads((ROOT / "desktop/media-tools.json").read_text(encoding="utf-8"))
     cache = ROOT / "build/media-cache"
@@ -160,9 +173,7 @@ def main():
     save_json(WORK / "build-info.json", {"desktop_version": __version__, **upstream_info,
         "desktop_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "media_tools": config["version"]})
     # The spec takes explicit paths rather than the developer's global PATH.
-    environment = os.environ.copy()
-    environment["VIDEODL_BUILD_TOOLS"] = str(tools)
-    environment["PYTHONPATH"] = str(stage)
+    environment = isolated_environment(stage, tools)
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--distpath", str(DIST),
                     "--workpath", str(WORK / "pyinstaller"), str(ROOT / "desktop/desktop.spec")], cwd=stage, env=environment, check=True)
     checked = assert_public_archive()
@@ -170,6 +181,8 @@ def main():
     package = DIST / "VideoDL Desktop"
     shutil.copy2(ROOT / "LICENSE", package / "LICENSE.txt")
     shutil.copy2(ROOT / "desktop/README.md", package / "使用说明.md")
+    (package / "assets").mkdir(exist_ok=True)
+    shutil.copy2(ROOT / "desktop/assets/screenshot.png", package / "assets/screenshot.png")
     shutil.copy2(WORK / "public-build-audit.json", package / "public-build-audit.json")
     shutil.copy2(WORK / "build-info.json", package / "build-info.json")
     notice = ("VideoDL Desktop " + __version__ + "\nOriginal project: https://github.com/CharlesPikachu/videodl\nDesktop project: https://github.com/Chihiro521/videodl\n\n"
