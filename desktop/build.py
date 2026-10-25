@@ -56,6 +56,7 @@ class PublicDefaults(ast.NodeTransformer):
 def stage_sources():
     stage = WORK / "source"
     audit = []
+    removed_values = set()
     for source in (ROOT / "videodl").rglob("*"):
         if not source.is_file() or source.suffix not in {".py", ".js", ".wasm"} or "__pycache__" in source.parts:
             continue
@@ -65,11 +66,28 @@ def stage_sources():
             tree = ast.parse(source.read_text(encoding="utf-8-sig"))
             public = PublicDefaults()
             tree = public.visit(tree)
+            removed_values.update(public.removed_values)
             destination.write_text(ast.unparse(ast.fix_missing_locations(tree)) + "\n", encoding="utf-8")
             if public.removed:
                 audit.append({"file": str(source.relative_to(ROOT)).replace("\\", "/"), "removed_defaults": public.removed})
         else:
             shutil.copy2(source, destination)
+    # The same defaults can also occur in a separate list or helper function.
+    # Clear all repeated literals after discovering their labelled declarations.
+    class ClearRepeated(ast.NodeTransformer):
+        def __init__(self):
+            self.lines = []
+        def visit_Constant(self, node):
+            if isinstance(node.value, str) and node.value in removed_values:
+                self.lines.append(node.lineno)
+                return ast.copy_location(ast.Constant(""), node)
+            return node
+    for path in (stage / "videodl").rglob("*.py"):
+        repeated = ClearRepeated()
+        tree = repeated.visit(ast.parse(path.read_text(encoding="utf-8")))
+        if repeated.lines:
+            path.write_text(ast.unparse(ast.fix_missing_locations(tree)) + "\n", encoding="utf-8")
+            audit.append({"file": path.relative_to(stage).as_posix(), "cleared_repeated_literals": len(repeated.lines)})
     save_json(WORK / "public-build-audit.json", audit)
     for source in (ROOT / "desktop").glob("*.py"):
         destination = stage / "desktop" / source.name
