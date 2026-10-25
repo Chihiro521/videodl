@@ -2,6 +2,7 @@ import ast
 
 from desktop.build import PublicDefaults
 from desktop import build
+import os
 
 
 def test_public_build_removes_defaults_without_changing_api_structure():
@@ -33,3 +34,12 @@ def test_staged_sources_clear_reused_values_and_preserve_originals(tmp_path, mon
     stage = build.stage_sources()
     assert "example-service-default" not in (stage / "videodl/example.py").read_text(encoding="utf-8")
     assert (upstream / "example.py").read_text(encoding="utf-8") == original
+
+
+def test_build_dll_search_does_not_inherit_other_apps(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", "C:/other-application/poppler/bin")
+    monkeypatch.setenv("QT_PLUGIN_PATH", "C:/other-application/qt/plugins")
+    environment = build.isolated_environment(tmp_path / "stage", tmp_path / "tools")
+    assert "other-application" not in environment["PATH"]
+    assert "QT_PLUGIN_PATH" not in environment
+    assert environment["PYTHONPATH"] == str(tmp_path / "stage")

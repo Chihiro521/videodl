@@ -1,6 +1,8 @@
-# VideoDL Desktop 0.1.0
+# VideoDL Desktop 0.1.1
 
 Windows 桌面首版：粘贴链接后选择封面、独立音频和视频，并通过批量队列保存。
+
+修复构建时收集其他应用 ICU DLL 导致的 QtCore 启动错误。构建使用独立 DLL 搜索路径，并校验依赖来源；发行前验证完整 exe 的窗口启动与后台下载。
 
 - 支持多链接、分享文本、解析预览、多分P选择，以及 1–3 个并发任务。
 - 支持取消、失败重试、队列暂停、重启后恢复任务列表、文件夹跳转。
@@ -8,7 +10,7 @@ Windows 桌面首版：粘贴链接后选择封面、独立音频和视频，并
 - 同名文件自动编号；部分内容失败时保留其他已完成文件。
 - 提供正式桌面发行版检查、上游状态展示和版本追溯。
 
-下载 `VideoDL-Desktop-0.1.0-windows-x64.zip`，完整解压后双击 `VideoDL Desktop.exe`。Python 运行环境、FFmpeg、ffprobe 和 Node.js 随包提供。
+下载 `VideoDL-Desktop-0.1.1-windows-x64.zip`，完整解压后双击 `VideoDL Desktop.exe`。Python 运行环境、FFmpeg、ffprobe 和 Node.js 随包提供。
 
 视频画质由上游解析器选择。音频输出保持源编码。首版包含本地 HTTP 媒体的真实下载、原始音轨一致性、队列恢复和打包后台进程测试。各平台解析可用性取决于上游和网站接口。
 

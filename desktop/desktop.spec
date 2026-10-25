@@ -32,6 +32,10 @@ a = Analysis([str(stage / 'desktop/entry.py')], pathex=[str(stage)], binaries=bi
 upstream_modules = [(name, filename) for name, filename, kind in a.pure if name == 'videodl' or name.startswith('videodl.')]
 if not upstream_modules or any(not Path(filename).resolve().is_relative_to(stage.resolve()) for name, filename in upstream_modules):
     raise RuntimeError('Upstream modules must come from the isolated public build source')
+allowed_native_roots = [Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve(), stage.resolve(), tools.resolve(), Path(os.environ['SystemRoot']).resolve()]
+unexpected = [Path(source).name for dest, source, kind in a.binaries if not any(Path(source).resolve().is_relative_to(parent) for parent in allowed_native_roots)]
+if unexpected:
+    raise RuntimeError('Unexpected native dependencies outside build environment: ' + ', '.join(sorted(set(unexpected))))
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='VideoDL Desktop', icon=str(root / 'desktop/assets/app.ico'), debug=False,
     bootloader_ignore_signals=False, strip=False, upx=False, console=False,
