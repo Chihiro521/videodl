@@ -4,8 +4,6 @@ Keep upstream files untouched. Contract tests pin this boundary rather than a
 particular list of platforms. Opaque stream objects remain inside the worker.
 """
 
-import base64
-import hashlib
 import copy
 import json
 import re
@@ -24,14 +22,12 @@ from videodl import __version__ as core_version
 from videodl.modules import BuildCommonVideoClient, BuildVideoClient, CommonVideoClientBuilder, VideoClientBuilder, VideoInfo
 from videodl.videodl import VideoClient
 
+from .media import media_key, public_formats
+from .parsing import Parsing
+
 
 class DesktopError(Exception):
     pass
-
-
-def media_key(info, index=0):
-    identity = str(info.identifier) if info.identifier else f"{index}:{info.title}"
-    return hashlib.sha256(f"{info.source}\0{identity}".encode("utf-8")).hexdigest()
 
 
 class QuietLogger:
@@ -142,6 +138,10 @@ def upstream_progress(report):
 
 
 class Adapter:
+    new_info = staticmethod(VideoInfo)
+    failure = DesktopError
+    error_text = staticmethod(download_error)
+
     def __init__(self, output: Path, report=lambda *a, **k: None, common=True):
         check_contract()
         tool_environment()
@@ -150,17 +150,18 @@ class Adapter:
         names = list(VideoClientBuilder.REGISTERED_MODULES)
         if common:
             names += list(CommonVideoClientBuilder.REGISTERED_MODULES)
-        config = {name: {"work_dir": str(output), "disable_print": True, "max_retries": 2, "logger_handle": QuietLogger()} for name in names + ["WebMediaGrabber"]}
+        config = {name: {"work_dir": str(output), "disable_print": True, "max_retries": 1, "logger_handle": QuietLogger()} for name in names + ["WebMediaGrabber"]}
         self.client = VideoClient(allowed_video_sources=names, init_video_clients_cfg=config,
                                   requests_overrides={name: {"timeout": 18} for name in names + ["WebMediaGrabber"]})
         self.client.logger_handle = QuietLogger()
+        self.parser = Parsing(self)
 
     def parse(self, url: str):
         from .storage import parse_links
         if parse_links(url) != [url]:
             raise DesktopError("请输入完整的 http 或 https 视频链接。")
-        self.report("progress", percent=-1, detail="正在解析链接；通用解析可能需要一些时间")
-        infos = self.client.parsefromurl(url=url)
+        self.report("progress", percent=-1, detail="正在解析链接")
+        infos = self.parser.parse(url)
         valid = [info for info in (infos or []) if info.with_valid_download_url]
         if not valid:
             raise DesktopError("没有解析到可下载内容。请检查链接，或稍后重试。")
@@ -176,7 +177,7 @@ class Adapter:
                 return mapping[info.source]
         raise DesktopError("上游返回了未注册的解析器，需要更新适配层。")
 
-    def summary(self, infos, with_thumbnail=True):
+    def summary(self, infos, with_thumbnail=False):
         result = []
         for index, info in enumerate(infos):
             url_ext = Path(urlsplit(info.download_url).path).suffix.lower().lstrip(".") if isinstance(info.download_url, str) else ""
@@ -185,15 +186,26 @@ class Adapter:
             result.append({"index": index, "title": info.title or "未命名媒体", "source": info.source,
                            "ext": info.ext, "has_cover": bool(cover_url(info.cover_url)),
                            "separate_audio": bool(info.audio_download_url), "audio_ext": info.audio_ext,
-                           "media_kind": media_kind, "item_key": media_key(info, index)})
-        thumbnail = ""
-        if with_thumbnail and infos and cover_url(infos[0].cover_url):
-            try:
-                data, _ = self.cover_bytes(infos[0], limit=3 * 1024 * 1024)
-                thumbnail = base64.b64encode(data).decode("ascii")
-            except Exception:
-                pass
-        return {"items": result, "thumbnail": thumbnail, "core_version": core_version}
+                           "media_kind": media_kind, "item_key": media_key(info, index), "identity_version": 2,
+                           "formats": public_formats(getattr(info, "_desktop_formats", []))})
+        return {"items": result, "thumbnail": "", "core_version": core_version}
+
+    def select_format(self, info, format_id=None):
+        item = copy.deepcopy(info)
+        formats = getattr(info, "_desktop_formats", [])
+        selected = next((f for f in formats if f["id"] == format_id), None) if format_id else (formats[0] if formats else None)
+        if format_id and not selected:
+            raise DesktopError("所选画质已不可用，请重新提取并选择画质。")
+        if selected:
+            item.download_url = selected["url"]
+            item.ext = selected["ext"]
+            item._desktop_format_id = selected["id"]
+            item._desktop_map = selected.get("map")
+            if selected.get("audio_url"):
+                item.audio_download_url = selected["audio_url"]
+                item.audio_ext = "m4a"
+            item.default_download_headers = {**(item.default_download_headers or {}), **selected.get("headers", {})}
+        return item
 
     def cover_bytes(self, info, limit=24 * 1024 * 1024):
         url = cover_url(info.cover_url)
@@ -228,6 +240,10 @@ class Adapter:
             item.download_with_ffmpeg = False
         if audio_only:
             item.audio_download_url = ""
+        if not audio_only and getattr(item, "_desktop_map", None):
+            return self.fetch_dash(item, target)
+        if not audio_only and item.audio_download_url:
+            return self.fetch_separate(item, target)
         client = self.source_client(item)
         # Keep upstream's regenerated HLS paths and partial files inside this
         # owned temporary directory, including on failure and audio-only jobs.
@@ -244,6 +260,46 @@ class Adapter:
             actual = paths[0]
             target = unique_path(target.with_suffix(actual.suffix))
             shutil.move(str(actual), target)
+        return target
+
+    def fetch_separate(self, info, target):
+        ffmpeg = find_tool("ffmpeg")
+        if not ffmpeg:
+            raise DesktopError("此画质需要 FFmpeg 合并音视频，请使用完整发行包。")
+        with tempfile.TemporaryDirectory(prefix=".media-", dir=target.parent) as scratch:
+            self.report("scratch", path=scratch)
+            root = Path(scratch)
+            video_info = copy.deepcopy(info)
+            video_info.audio_download_url = ""
+            video = self.fetch_media(video_info, root / "video.mp4")
+            audio = self.fetch_media(info, root / "audio.m4a", audio_only=True)
+            merged = root / ("merged." + extension(info.ext))
+            self.report("progress", percent=-1, detail="正在合并所选画质与原始音轨")
+            result = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-n", "-i", str(video), "-i", str(audio),
+                "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", str(merged)], capture_output=True, timeout=7200)
+            if result.returncode or not merged.is_file() or not merged.stat().st_size:
+                raise DesktopError("所选画质与音轨合并失败，请重新提取后重试。")
+            target = unique_path(target.with_suffix(merged.suffix))
+            shutil.move(str(merged), target)
+        return target
+
+    def fetch_dash(self, info, target):
+        ffmpeg = find_tool("ffmpeg")
+        if not ffmpeg:
+            raise DesktopError("此画质需要 FFmpeg，请使用完整发行包。")
+        with tempfile.TemporaryDirectory(prefix=".media-", dir=target.parent) as scratch:
+            self.report("scratch", path=scratch)
+            temporary = Path(scratch) / (target.stem + ".mp4")
+            args = [ffmpeg, "-nostdin", "-v", "error", "-n", "-rw_timeout", "25000000"]
+            headers = info.default_download_headers or {}
+            if headers:
+                args += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in headers.items())]
+            args += ["-i", info.download_url, "-map", info._desktop_map, "-map", "0:a:0?", "-c", "copy", str(temporary)]
+            result = subprocess.run(args, capture_output=True, timeout=7200)
+            if result.returncode or not temporary.is_file() or not temporary.stat().st_size:
+                raise DesktopError("所选画质下载未完成，请重新提取后重试。")
+            target = unique_path(target.with_suffix(".mp4"))
+            shutil.move(str(temporary), target)
         return target
 
     def extract_audio(self, media: Path, destination: Path) -> Path:
@@ -265,7 +321,7 @@ class Adapter:
             raise DesktopError("音轨提取失败，请重试或保留视频文件。")
         return output
 
-    def download(self, infos, options, indices=None, item_keys=None):
+    def download(self, infos, options, indices=None, item_keys=None, format_ids=None):
         indexed = list(enumerate(infos))
         if item_keys is not None:
             requested = set(item_keys)
@@ -281,13 +337,14 @@ class Adapter:
         files, errors = [], []
         self.output.mkdir(parents=True, exist_ok=True)
         for number, (source_index, original) in enumerate(selected, 1):
-            info = copy.deepcopy(original)
+            info = self.select_format(original, (format_ids or {}).get(media_key(original, source_index)))
             title = filename(info.title)
             folder = self.output / title
             folder.mkdir(parents=True, exist_ok=True)
             self.report("progress", percent=-1, detail=f"正在处理 {number}/{len(selected)}：{info.title}")
             def record(path, kind):
-                entry = {"path": str(path), "kind": kind, "item_key": media_key(original, source_index)}
+                entry = {"path": str(path), "kind": kind, "item_key": media_key(original, source_index),
+                         "format_id": getattr(info, "_desktop_format_id", "") if kind == "video" else ""}
                 files.append(entry)
                 self.report("file", **entry)
             if options.get("cover"):

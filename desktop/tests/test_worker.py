@@ -67,3 +67,4 @@ def test_frozen_gui_extracts_selects_and_downloads(tmp_path, media_server):
     assert report["jobs"][0]["status"] == "done"
     assert report["jobs"][0]["options"] == {"video": False, "audio": True, "cover": False}
     assert __import__("pathlib").Path(report["jobs"][0]["files"][0]["path"]).is_file()
+    assert report["jobs"][0]["cache_hit"]

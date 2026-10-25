@@ -33,8 +33,12 @@
 | `results.py`、`resultview.py` | 结果数据、筛选、选择、逐行操作 |
 | `downloads.py`、`process.py` | 下载队列与后台进程 |
 | `adapter.py` | 上游接口适配、条目标识、媒体输出 |
+| `media.py`、`parsing.py` | 统一媒体与画质描述、平台解析及元数据补齐 |
+| `pool.py`、`session.py`、`jobobject.py` | 常驻隔离进程、内存缓存、Windows 子进程生命周期 |
 
 改界面主要编辑页面和样式；上游接口变化集中调整适配层。
+
+画质描述通过 `public_formats` 去除临时下载地址，再交给界面及本地记录。原始 `VideoInfo`、流对象和地址仅保留在后台进程内。结果与任务通过 `identity_version=2`、`item_key` 和 `format_ids` 关联，旧记录在首次下载时自动补齐。新增来源适配应返回同一套描述，避免向页面加入平台分支。
 
 ## 同步上游
 

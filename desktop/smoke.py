@@ -22,8 +22,8 @@ def schedule_capture(window, report_path):
         timer.stop()
         save_json(path, {"visible": window.isVisible(), "width": window.width(), "height": window.height(),
             "error": error, "failures": list(window.extraction_failures.values()),
-            "results": [{"kind": row["kind"], "status": row["status"]} for row in window.catalog.rows],
-            "jobs": [{"status": job["status"], "options": job["options"], "files": job.get("files", [])} for job in window.jobs]})
+            "results": [{key: row.get(key) for key in ("kind", "status", "title", "formats", "format_id")} for row in window.catalog.rows],
+            "jobs": [{key: job.get(key) for key in ("status", "options", "files", "cache_hit", "parse_seconds")} for job in window.jobs]})
         window.grab().save(str(path.with_suffix(".png")))
         window.close()
 
@@ -40,6 +40,10 @@ def schedule_capture(window, report_path):
                 return
             kind = command.get("kind", "audio")
             rows = [row for row in window.catalog.rows if kind == "all" or row["kind"] == kind]
+            for row in rows:
+                if row["kind"] == "video" and row.get("formats"):
+                    row["format_id"] = row["formats"][min(command.get("quality_index", 0), len(row["formats"])-1)]["id"]
+            window.render_results()
             window.download_results(rows)
             stage = "download"
         elif stage == "download" and not window.running and not any(job["status"] == "waiting" for job in window.jobs):
@@ -48,7 +52,7 @@ def schedule_capture(window, report_path):
     timer.timeout.connect(advance)
     if command:
         window.destination.setText(command["output"])
-        window.common.setChecked(False)
+        window.common.setChecked(command.get("common", False))
         window.auto_download.setChecked(False)
         window.links.setPlainText(command["url"])
         window.start_preview()

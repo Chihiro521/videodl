@@ -200,7 +200,7 @@ class WorkbenchPages:
         self.results_table = self.make_table(["", "标题", "类型 / 格式", "状态", "操作"])
         self.results_table.setColumnWidth(0, 38)
         self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        for column, width in ((2, 155), (3, 122), (4, 90)):
+        for column, width in ((2, 205), (3, 122), (4, 90)):
             self.results_table.setColumnWidth(column, width)
         self.result_stack.addWidget(self.results_table)
         area.addWidget(self.result_stack, 1)
