@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 
 from .storage import load_json, save_json
+from .quality import recommended_formats
 
 
 def schedule_capture(window, report_path):
@@ -42,7 +43,8 @@ def schedule_capture(window, report_path):
             rows = [row for row in window.catalog.rows if kind == "all" or row["kind"] == kind]
             for row in rows:
                 if row["kind"] == "video" and row.get("formats"):
-                    row["format_id"] = row["formats"][min(command.get("quality_index", 0), len(row["formats"])-1)]["id"]
+                    formats = recommended_formats(row["formats"])
+                    row["format_id"] = formats[min(command.get("quality_index", 0), len(formats)-1)]["id"]
             window.render_results()
             window.download_results(rows)
             stage = "download"

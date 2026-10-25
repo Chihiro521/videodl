@@ -3,6 +3,8 @@
 import hashlib
 from collections import OrderedDict
 
+from .quality import recommended_formats
+
 KINDS = {"video": "视频", "audio": "音频", "cover": "封面"}
 
 
@@ -35,7 +37,7 @@ class ResultCatalog:
                 formats = item.get("formats", []) if kind == "video" else []
                 chosen = previous.get("format_id", "")
                 if not any(f["id"] == chosen for f in formats):
-                    chosen = formats[0]["id"] if formats else ""
+                    chosen = recommended_formats(formats)[0]["id"] if formats else ""
                 fresh.append({"id": row_id, "url": url, "index": index, "item_key": item.get("item_key", ""),
                     "identity_version": item.get("identity_version", 2), "formats": formats, "format_id": chosen,
                     "title": item.get("title") or "未命名媒体", "source": item.get("source", ""),

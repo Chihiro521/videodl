@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout,
-    QHeaderView, QLineEdit, QMenu, QPlainTextEdit, QSizePolicy, QSpinBox, QStackedWidget,
+    QHeaderView, QLineEdit, QMenu, QPlainTextEdit, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget,
     QTableWidget, QToolButton, QVBoxLayout, QWidget)
 
 from . import REPOSITORY, __version__
@@ -269,11 +269,25 @@ class WorkbenchPages:
         box.addWidget(label("开启后可尝试更多来源，部分链接的等待时间会增加。", "muted"))
         form = QFormLayout()
         self.extract_concurrency = QSpinBox()
+        self.extract_concurrency.setMinimumHeight(36)
+        self.extract_concurrency.setMaximumWidth(120)
         self.extract_concurrency.setRange(1, 3)
         self.extract_concurrency.setValue(max(1, min(3, int(self.settings.get("extract_concurrency", 2)))))
         self.extract_concurrency.valueChanged.connect(self.persist)
         form.addRow("同时提取的链接", self.extract_concurrency)
         box.addLayout(form)
+        layout.addWidget(frame)
+        from .bilibili_auth import load_cookies
+        frame, box = card()
+        box.addWidget(label("B站高清画质", "section"))
+        self.bilibili_status = label("B站已登录 · 提取时优先获取账号可访问的高清画质" if load_cookies()
+                                     else "B站未登录 · 登录后可获取更多高清画质", "muted")
+        box.addWidget(self.bilibili_status)
+        row = QHBoxLayout()
+        row.addWidget(button("扫码登录B站", self.login_bilibili, "primary"))
+        row.addWidget(button("清除本机登录", self.logout_bilibili))
+        row.addStretch()
+        box.addLayout(row)
         layout.addWidget(frame)
         frame, box = card()
         box.addWidget(label("自动下载的内容", "section"))
@@ -299,7 +313,11 @@ class WorkbenchPages:
         box.addLayout(row)
         layout.addWidget(frame)
         layout.addStretch()
-        return page
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(page)
+        return scroll
 
     def _updates_page(self):
         page, layout = self.page("关于与更新", "VideoDL Desktop")

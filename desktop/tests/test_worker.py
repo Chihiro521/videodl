@@ -8,6 +8,22 @@ from desktop.storage import save_json
 from desktop.tests.test_media import variant_server
 
 
+def test_worker_diagnostics_includes_login_components(tmp_path):
+    path = tmp_path / "diagnostics.json"
+    save_json(path, {"action": "diagnostics"})
+    frozen = os.environ.get("VIDEODL_TEST_EXE")
+    executable = [frozen] if frozen else [sys.executable, "-m", "desktop"]
+    environment = os.environ.copy()
+    if frozen and os.name == "nt":
+        environment["PATH"] = str(__import__("pathlib").Path(os.environ["SystemRoot"]) / "System32")
+        environment.pop("PYTHONPATH", None)
+        environment.pop("PYTHONHOME", None)
+    result = subprocess.run([*executable, "--worker", str(path)], capture_output=True, timeout=45, env=environment)
+    assert result.returncode == 0
+    event = json.loads(path.with_suffix(".events").read_text(encoding="utf-8").splitlines()[-1])
+    assert event["event"] == "result" and event["qr_login"] and event["encrypted_storage"]
+
+
 def test_worker_process_protocol_and_all_outputs(tmp_path, media_server):
     server, _ = media_server
     path = tmp_path / "command.json"

@@ -51,6 +51,7 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
         self.extraction_completed = 0
         self.extraction_cancelled = False
         self.update_worker = None
+        self.bilibili_dialog = None
         self.closing = False
         self.paused = False
         self.result_row_map = {}
@@ -73,6 +74,32 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
 
     def paste(self):
         self.links.setPlainText(QApplication.clipboard().text())
+
+    def login_bilibili(self):
+        from .bilibili_login import LoginDialog
+        if self.bilibili_dialog and self.bilibili_dialog.isVisible():
+            self.bilibili_dialog.raise_()
+            return
+        if self.bilibili_dialog and self.bilibili_dialog.thread.isRunning():
+            return
+        self.bilibili_dialog = LoginDialog(self)
+        self.bilibili_dialog.logged_in.connect(self.bilibili_logged_in)
+        self.bilibili_dialog.show()
+
+    def bilibili_logged_in(self):
+        self.bilibili_status.setText("B站已登录 · 提取时优先获取账号可访问的高清画质")
+        self.say("B站登录成功，重新提取链接即可获取可用高清画质。")
+
+    def logout_bilibili(self):
+        from .bilibili_auth import vault_path
+        if self.bilibili_dialog and self.bilibili_dialog.thread.isRunning():
+            self.bilibili_dialog.thread.requestInterruption()
+            self.bilibili_dialog.thread.finished.connect(self.logout_bilibili)
+            self.bilibili_dialog.hide()
+            return
+        vault_path().unlink(missing_ok=True)
+        self.bilibili_status.setText("B站未登录 · 登录后可获取更多高清画质")
+
 
     def paste_and_extract(self):
         self.paste()
@@ -143,6 +170,13 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
             self.statusBar().showMessage("本地记录保存失败，请检查数据文件夹的可写权限。")
 
     def closeEvent(self, event):
+        if self.bilibili_dialog and self.bilibili_dialog.thread.isRunning():
+            self.bilibili_dialog.thread.requestInterruption()
+            self.bilibili_dialog.hide()
+            self.bilibili_dialog.thread.finished.connect(self.close)
+            self.hide()
+            event.ignore()
+            return
         self.closing = True
         self.extraction_waiting.clear()
         workers = list(self.running.values()) + list(self.extraction_active.values())

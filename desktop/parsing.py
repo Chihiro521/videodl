@@ -140,13 +140,16 @@ class Parsing:
 
     def bilibili(self, url):
         from urllib.parse import parse_qs
+        from .bilibili_auth import load_cookies
         match = re.search(r"/video/(BV[a-zA-Z0-9]+|av\d+)", url, re.I)
         if not match:
             return []
         headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.bilibili.com/"}
+        cookies = load_cookies()
         identifier = match[1]
         query = {"bvid": identifier} if identifier.lower().startswith("bv") else {"aid": identifier[2:]}
-        payload = self.get("https://api.bilibili.com/x/web-interface/view", params=query, headers=headers).json()
+        payload = self.get("https://api.bilibili.com/x/web-interface/view", params=query, headers=headers,
+                           cookies=cookies, allow_redirects=False).json()
         data = payload.get("data") or {}
         if payload.get("code") != 0 or not data:
             return []
@@ -156,13 +159,14 @@ class Parsing:
             if page_number and str(page.get("page")) != page_number:
                 continue
             payload = self.get("https://api.bilibili.com/x/player/playurl", params={"bvid": data["bvid"], "cid": page["cid"],
-                "fnval": 4048, "fnver": 0, "fourk": 1, "qn": 127}, headers=headers).json()
+                "fnval": 4048, "fnver": 0, "fourk": 1, "qn": 127}, headers=headers,
+                cookies=cookies, allow_redirects=False).json()
             play = payload.get("data") or {}
             dash = play.get("dash") or {}
             resources = dash.get("video") or []
             audio = sorted(dash.get("audio") or [], key=lambda a: a.get("bandwidth", 0), reverse=True)
             audio_url = (audio[0].get("baseUrl") or audio[0].get("base_url")) if audio else ""
-            resources = [{**resource, "audio_url": audio_url} for resource in resources]
+            resources = [{**resource, "audio_url": audio_url, "acodec": "none", "protocol": "dash"} for resource in resources]
             formats = normalize_formats(resources)
             if not formats:
                 urls = play.get("durl") or []
@@ -178,6 +182,27 @@ class Parsing:
                 audio_download_url=audio_url, audio_ext="m4a", cover_url=page.get("first_frame") or data.get("pic", ""),
                 default_download_headers=headers, default_audio_download_headers=headers)
             info._desktop_formats = formats
+            # The HTML5 endpoint sometimes offers a higher muxed version than
+            # anonymous DASH. Probe its actual dimensions rather than trusting qn.
+            if max(f["resolution"] for f in formats) < 720 and time.monotonic() < self.deadline - 10:
+                try:
+                    h5 = self.get("https://api.bilibili.com/x/player/playurl", params={"bvid": data["bvid"],
+                        "cid": page["cid"], "qn": 127, "fnval": 0, "platform": "html5", "high_quality": 1},
+                        headers=headers, cookies=cookies, allow_redirects=False).json().get("data") or {}
+                    urls = h5.get("durl") or []
+                    if len(urls) == 1 and urls[0].get("url"):
+                        address = urls[0]["url"]
+                        host = urlsplit(address).hostname or ""
+                        if address.startswith("http://") and (host == "bilivideo.com" or host.endswith(".bilivideo.com")):
+                            address = "https://" + address[7:]
+                        muxed = self.adapter.new_info(source="BilibiliVideoClient", download_url=address,
+                            ext="mp4", default_download_headers=headers)
+                        self.probe_format(muxed)
+                        extra = getattr(muxed, "_desktop_formats", [])
+                        if extra and extra[0]["resolution"]:
+                            info._desktop_formats = sorted(formats + extra, key=lambda f: (f["resolution"], f["fps"], f["bitrate"]), reverse=True)
+                except (requests.RequestException, ValueError):
+                    pass
             infos.append(info)
         return infos
 
@@ -243,12 +268,14 @@ class Parsing:
             args = [probe, "-v", "error", "-rw_timeout", "4000000", "-analyzeduration", "0", "-probesize", "65536"]
             if headers:
                 args += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in headers.items())]
-            args += ["-select_streams", "v:0", "-show_entries", "stream=width,height,codec_name,r_frame_rate", "-of", "json", info.download_url]
+            args += ["-show_entries", "stream=codec_type,width,height,codec_name,r_frame_rate", "-of", "json", info.download_url]
             response = subprocess.run(args, capture_output=True, timeout=6)
-            stream = json.loads(response.stdout).get("streams", [])[0]
+            streams = json.loads(response.stdout).get("streams", [])
+            stream = next((s for s in streams if s.get("codec_type") == "video"), {})
             if stream.get("width") and stream.get("height"):
                 resource = {"url": info.download_url, "width": stream["width"], "height": stream["height"],
-                    "vcodec": stream.get("codec_name", ""), "fps": stream.get("r_frame_rate"), "ext": info.ext}
+                    "vcodec": stream.get("codec_name", ""), "fps": stream.get("r_frame_rate"), "ext": info.ext,
+                    "acodec": next((s.get("codec_name") for s in streams if s.get("codec_type") == "audio"), "none")}
                 info._desktop_formats = normalize_formats([resource], info.ext)
         except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
             pass
