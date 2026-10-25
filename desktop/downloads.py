@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout, QProgressBar, QTableWidgetItem, QWidg
 from .process import Worker
 from .storage import public_host
 from .widgets import button
+from .quality import recommended_formats
 
 STATES = {"waiting": "等待中", "active": "下载中", "done": "已完成", "failed": "失败",
           "partial": "部分完成", "cancelled": "已取消", "interrupted": "已中断", "idle": "待下载"}
@@ -107,7 +108,7 @@ class DownloadQueue:
                         if row["kind"] == "video":
                             row["formats"] = item.get("formats", [])
                             if not row.get("format_id") and row["formats"]:
-                                row["format_id"] = row["formats"][0]["id"]
+                                row["format_id"] = recommended_formats(row["formats"])[0]["id"]
                 self.render_results()
             self.render_queue()
         elif kind == "progress":

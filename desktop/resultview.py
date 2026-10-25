@@ -10,6 +10,7 @@ from .downloads import STATES
 from .results import KINDS
 from .storage import public_host
 from .theme import icon
+from .quality import choice_label, detail_label, recommended_formats, resolution
 from .widgets import tool_button
 
 
@@ -48,12 +49,18 @@ class ResultView:
                 combo = QComboBox()
                 combo.setObjectName("qualityChoice")
                 combo.setAccessibleName(f"下载画质：{row['title']}")
-                formats = row.get("formats") or [{"id": "", "label": "来源画质-" + (row.get("ext") or "mp4").upper()}]
+                raw_formats = row.get("formats") or [{"id": "", "label": "来源画质-" + (row.get("ext") or "mp4").upper(), "ext": row.get("ext") or "mp4"}]
+                formats = recommended_formats(raw_formats)
+                selected = next((f for f in raw_formats if f["id"] == row.get("format_id")), None)
+                if selected:
+                    formats = [selected if resolution(f) == resolution(selected) else f for f in formats]
                 for entry in formats:
-                    combo.addItem(icon("video", "#64748b", 18), entry["label"], entry["id"])
+                    combo.addItem(icon("video", "#64748b", 18), choice_label(entry), entry["id"])
+                    combo.setItemData(combo.count() - 1, detail_label(entry), Qt.ItemDataRole.ToolTipRole)
                 combo.setCurrentIndex(max(0, combo.findData(row.get("format_id", ""))))
                 combo.setEnabled(self.row_state(row)[0] not in ("waiting", "active"))
-                combo.setToolTip("选择本条视频的下载画质" if len(formats) > 1 else "来源当前提供这一档画质")
+                combo.setMaxVisibleItems(10)
+                combo.setToolTip("每档展示推荐版本；其他编码可在右侧更多菜单中选择" if len(raw_formats) > len(formats) else "选择本条视频的下载画质")
                 combo.currentIndexChanged.connect(lambda _, current=row, control=combo: self.set_result_format(current, control.currentData()))
                 wrapper = QWidget()
                 layout = QHBoxLayout(wrapper)
@@ -74,6 +81,19 @@ class ResultView:
             more = tool_button("more", "更多操作")
             more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
             menu = QMenu(more)
+            if row["kind"] == "video" and len(row.get("formats", [])) > 1:
+                versions = menu.addMenu("其他编码 / 格式")
+                versions.setEnabled(self.row_state(row)[0] not in ("waiting", "active"))
+                groups = {}
+                for entry in row["formats"]:
+                    key = resolution(entry)
+                    if key not in groups:
+                        groups[key] = versions.addMenu(f"{key}p" if key else "来源画质")
+                    option = groups[key].addAction(detail_label(entry))
+                    option.setCheckable(True)
+                    option.setChecked(entry["id"] == row.get("format_id"))
+                    option.triggered.connect(lambda checked=False, current=row, chosen=entry["id"]: self.choose_other_format(current, chosen))
+                menu.addSeparator()
             menu.addAction("复制标题", lambda checked=False, current=row: QApplication.clipboard().setText(current["title"]))
             menu.addAction("复制来源链接", lambda checked=False, current=row: QApplication.clipboard().setText(current["url"]))
             menu.addAction("查看下载队列", lambda: self.navigate(1))
@@ -97,6 +117,10 @@ class ResultView:
         self.persist()
         self.refresh_result_status()
         self.update_selection()
+
+    def choose_other_format(self, row, format_id):
+        self.set_result_format(row, format_id)
+        self.render_results()
 
     def set_result_checked(self, row, checked):
         row["checked"] = checked

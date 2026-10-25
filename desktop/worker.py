@@ -32,7 +32,13 @@ def run(command_file, session):
                 return 0
             from .adapter import Adapter, check_contract
             if command["action"] == "diagnostics":
-                report("result", **check_contract())
+                import qrcode
+                from .bilibili_auth import protect
+                qr = qrcode.QRCode()
+                qr.add_data("https://www.bilibili.com/")
+                qr.make(fit=True)
+                encrypted_storage = os.name != "nt" or protect(protect(b"desktop-check"), decrypt=True) == b"desktop-check"
+                report("result", **check_contract(), qr_login=bool(qr.get_matrix()), encrypted_storage=encrypted_storage)
                 return 0
             report("progress", percent=-1, detail="正在准备媒体任务")
             report("result", **session.execute(command, report))

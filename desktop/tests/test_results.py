@@ -171,3 +171,76 @@ def test_legacy_failed_record_downloads_without_manual_reextract(application, tm
     assert rows[0]["identity_version"] == 2
     assert rows[0]["item_key"] != "legacy-changing-title-key"
     window.close()
+
+
+def test_new_extract_clears_old_rows_and_pending_jobs_at_click_only(application, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setenv("VIDEODL_DESKTOP_DATA", str(tmp_path / "appdata"))
+    window = Window()
+    window.paused = True
+    window.destination.setText(str(tmp_path / "output"))
+    rows = window.catalog.replace_summary("https://example.test/old", [summary()])
+    window.download_results([rows[0]])
+    pending = window.jobs[0]
+    active = {**pending, "id": "active", "status": "active"}
+    done = {**pending, "id": "done", "status": "done"}
+    saved_file = tmp_path / "downloaded.mp4"
+    saved_file.write_bytes(b"saved")
+    done["files"] = [{"path": str(saved_file), "kind": "video"}]
+    window.jobs += [active, done]
+    worker = SimpleNamespace(cancel=lambda: pytest.fail("active download was cancelled"))
+    window.running["active"] = worker
+    window.links.setPlainText("https://example.test/new")
+    assert len(window.catalog.rows) == 3 and len(window.jobs) == 3
+    monkeypatch.setattr(window, "pump_extraction", lambda: None)
+    window.begin_extraction([])
+    assert len(window.catalog.rows) == 3
+    window.start_preview()
+    assert not window.catalog.rows
+    assert window.jobs == [active]
+    assert window.running["active"] is worker
+    assert saved_file.read_bytes() == b"saved"
+    assert not load_json(tmp_path / "appdata/results.json", None)
+    assert [j["id"] for j in load_json(tmp_path / "appdata/queue.json", [])] == ["active"]
+    window.running.clear()
+    window.close()
+
+
+def test_retry_failed_extraction_keeps_successes(application, tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEODL_DESKTOP_DATA", str(tmp_path / "appdata"))
+    window = Window()
+    window.destination.setText(str(tmp_path / "output"))
+    window.catalog.replace_summary("https://example.test/success", [summary()])
+    window.extraction_failures["https://example.test/failed"] = "failed"
+    monkeypatch.setattr(window, "pump_extraction", lambda: None)
+    window.retry_extraction()
+    assert len(window.catalog.rows) == 3
+    assert window.extraction_waiting == ["https://example.test/failed"]
+    window.close()
+
+
+def test_compact_menu_advanced_choice_and_mixed_batch(application, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QComboBox, QToolButton
+    monkeypatch.setenv("VIDEODL_DESKTOP_DATA", str(tmp_path / "appdata"))
+    window = Window()
+    window.paused = True
+    window.destination.setText(str(tmp_path / "output"))
+    formats = [{"id": f"{p}-{c}", "resolution": p, "codec": c, "ext": "mp4"}
+               for p in (1080, 720) for c in ("avc1", "av01")]
+    a = window.catalog.replace_summary("https://example.test/a", [{**summary(), "formats": formats}])[0]
+    b = window.catalog.replace_summary("https://example.test/b", [{**summary(key="b"*64), "formats": formats}])[0]
+    window.type_filter.setCurrentIndex(window.type_filter.findData("video"))
+    window.render_results()
+    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice")
+    assert combo.count() == 2 and combo.itemText(0) == "1080p-MP4"
+    menus = [button.menu() for button in window.results_table.cellWidget(0, 4).findChildren(QToolButton) if button.menu()]
+    versions = menus[0].actions()[0].menu()
+    options = [a for group in versions.actions() for a in group.menu().actions()]
+    assert len(options) == 4
+    window.choose_other_format(a, "1080-av01")
+    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice")
+    assert combo.count() == 2 and combo.currentData() == "1080-av01"
+    window.set_result_format(b, "720-avc1")
+    window.download_results([a, b])
+    assert [list(job["format_ids"].values())[0] for job in window.jobs] == ["1080-av01", "720-avc1"]
+    window.close()

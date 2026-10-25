@@ -12,7 +12,9 @@ class ExtractionController:
         if not self.extraction_active and not self.extraction_waiting:
             self.begin_extraction(parse_links(self.links.toPlainText()))
 
-    def begin_extraction(self, urls):
+    def begin_extraction(self, urls, replace=True):
+        if self.extraction_active:
+            return
         output = self.output_directory()
         if not urls or not output:
             self.say("请先粘贴有效链接，并选择保存文件夹。")
@@ -24,6 +26,20 @@ class ExtractionController:
             self.say("请先选择自动下载的内容。")
             self.navigate(2)
             return
+        if replace:
+            self.catalog.rows.clear()
+            self.jobs = [job for job in self.jobs if job["id"] in self.running]
+            self.extraction_failures.clear()
+            self.result_search.clear()
+            self.type_filter.setCurrentIndex(0)
+            self.queue_search.clear()
+            self.queue_filter.setCurrentIndex(0)
+            self.retry_extract_button.hide()
+            self.extract_errors_button.hide()
+            self.render_results()
+            self.render_queue()
+            self.persist()
+            self.say("正在提取新一批链接…")
         self.extraction_waiting = list(urls)
         self.extraction_output = output
         self.extraction_total = len(urls)
@@ -94,7 +110,7 @@ class ExtractionController:
 
     def retry_extraction(self):
         if not self.extraction_active and self.extraction_failures:
-            self.begin_extraction(list(self.extraction_failures))
+            self.begin_extraction(list(self.extraction_failures), replace=False)
 
     def show_extraction_errors(self):
         box = QMessageBox(self)

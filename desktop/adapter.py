@@ -24,6 +24,7 @@ from videodl.videodl import VideoClient
 
 from .media import media_key, public_formats
 from .parsing import Parsing
+from .quality import recommended_formats
 
 
 class DesktopError(Exception):
@@ -193,7 +194,7 @@ class Adapter:
     def select_format(self, info, format_id=None):
         item = copy.deepcopy(info)
         formats = getattr(info, "_desktop_formats", [])
-        selected = next((f for f in formats if f["id"] == format_id), None) if format_id else (formats[0] if formats else None)
+        selected = next((f for f in formats if f["id"] == format_id), None) if format_id else (recommended_formats(formats)[0] if formats else None)
         if format_id and not selected:
             raise DesktopError("所选画质已不可用，请重新提取并选择画质。")
         if selected:
@@ -201,7 +202,9 @@ class Adapter:
             item.ext = selected["ext"]
             item._desktop_format_id = selected["id"]
             item._desktop_map = selected.get("map")
-            if selected.get("audio_url"):
+            if selected.get("has_audio") is True:
+                item.audio_download_url = ""
+            elif selected.get("audio_url"):
                 item.audio_download_url = selected["audio_url"]
                 item.audio_ext = "m4a"
             item.default_download_headers = {**(item.default_download_headers or {}), **selected.get("headers", {})}

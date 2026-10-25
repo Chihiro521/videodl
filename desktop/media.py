@@ -83,6 +83,13 @@ def format_descriptor(resource, index=0, default_ext="mp4"):
     fps = number(resource.get("fps") or resource.get("frameRate"))
     bitrate = number(resource.get("tbr") or resource.get("bandwidth") or resource.get("bit_rate") or resource.get("bitrate"))
     native_id = str(resource.get("format_id") or resource.get("itag") or resource.get("id") or resource.get("gear_name") or "")
+    protocol = str(resource.get("protocol") or "")
+    if not protocol and isinstance(url, str):
+        path = urlsplit(url).path.lower()
+        protocol = "m3u8_native" if path.endswith((".m3u8", ".m3u")) else "dash" if path.endswith((".mpd", ".m4s")) or resource.get("_map") else urlsplit(url).scheme
+    acodec = resource.get("acodec")
+    has_audio = None if acodec is None else acodec not in ("none", "")
+    dynamic_range = resource.get("dynamic_range") or ("HDR" if re.search(r"HDR|HLG|Dolby", label, re.I) else "SDR")
     identity = [native_id, resolution, width, height, fps, codec, ext, str(resource.get("_map", ""))]
     # Unknown single resources must survive changing signed URLs and providers.
     if not any((native_id, resolution, codec, width, height)):
@@ -92,7 +99,8 @@ def format_descriptor(resource, index=0, default_ext="mp4"):
             "width": width, "height": height, "resolution": resolution, "fps": fps,
             "codec": codec, "ext": ext, "bitrate": bitrate, "url": url,
             "audio_url": resource.get("audio_url", ""), "map": resource.get("_map"),
-            "headers": resource.get("http_headers") or {}, "native_id": native_id}
+            "headers": resource.get("http_headers") or {}, "native_id": native_id,
+            "protocol": protocol, "has_audio": has_audio, "dynamic_range": dynamic_range}
 
 
 def normalize_formats(resources, default_ext="mp4"):
@@ -115,7 +123,7 @@ def normalize_formats(resources, default_ext="mp4"):
 
 
 def public_formats(formats):
-    return [{key: item[key] for key in ("id", "label", "width", "height", "resolution", "fps", "codec", "ext")} for item in formats]
+    return [{key: item.get(key) for key in ("id", "label", "width", "height", "resolution", "fps", "codec", "ext", "protocol", "has_audio", "dynamic_range", "bitrate")} for item in formats]
 
 
 def raw_formats(raw):

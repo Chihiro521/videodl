@@ -134,6 +134,8 @@ def test_video_and_separate_audio_are_fetched_once(tmp_path, media_server, monke
     infos = adapter.parse(server + "/sample.mp4")
     infos[0].audio_download_url = server + "/audio.m4a"
     infos[0].audio_ext = "m4a"
+    # Model DASH: a separate audio track belongs to a video-only resource.
+    infos[0]._desktop_formats[0]["has_audio"] = False
     original, calls = adapter.fetch_media, []
     def fetch(info, target, audio_only=False):
         if audio_only:

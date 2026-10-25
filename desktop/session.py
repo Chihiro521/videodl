@@ -5,6 +5,7 @@ import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .media import canonical_url, legacy_media_key, media_key
 
@@ -22,9 +23,12 @@ class Session:
             self.adapters[common] = Adapter(Path(command["output"]), report, common=common)
         adapter = self.adapters[common]
         adapter.output, adapter.report = Path(command["output"]), report
-        key = (canonical_url(command["url"]), common)
+        url = canonical_url(command["url"])
+        from .bilibili_auth import revision
+        auth_revision = revision() if (urlsplit(url).hostname or "") in ("www.bilibili.com", "m.bilibili.com", "bilibili.com", "b23.tv") else 0
+        key = (url, common, auth_revision)
         for old_key, (created, _) in list(self.cache.items()):
-            if self.clock() - created >= self.ttl:
+            if self.clock() - created >= self.ttl or (old_key[0] == url and old_key[2] != auth_revision):
                 self.cache.pop(old_key)
 
         def parse(force=False):
