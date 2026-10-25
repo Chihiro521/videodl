@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import types
 import zipfile
 from pathlib import Path
 
@@ -30,6 +31,7 @@ class PublicDefaults(ast.NodeTransformer):
     """Remove embedded account/service defaults in the build copy only."""
     def __init__(self):
         self.removed = []
+        self.removed_values = set()
 
     def visit_Dict(self, node):
         self.generic_visit(node)
@@ -37,6 +39,7 @@ class PublicDefaults(ast.NodeTransformer):
             if isinstance(key, ast.Constant) and isinstance(key.value, str) and FORBIDDEN_KEY.search(key.value):
                 if isinstance(value, ast.Constant) and isinstance(value.value, str) and len(value.value) > 8:
                     self.removed.append({"line": value.lineno, "field": key.value})
+                    self.removed_values.add(value.value)
                     node.values[index] = ast.copy_location(ast.Constant(""), value)
         return node
 
@@ -45,6 +48,7 @@ class PublicDefaults(ast.NodeTransformer):
         name = ast.unparse(node.targets[0])
         if FORBIDDEN_KEY.search(name) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str) and len(node.value.value) > 15:
             self.removed.append({"line": node.lineno, "field": name})
+            self.removed_values.add(node.value.value)
             node.value = ast.copy_location(ast.Constant(""), node.value)
         return node
 
@@ -67,7 +71,39 @@ def stage_sources():
         else:
             shutil.copy2(source, destination)
     save_json(WORK / "public-build-audit.json", audit)
+    for source in (ROOT / "desktop").glob("*.py"):
+        destination = stage / "desktop" / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
     return stage
+
+
+def assert_public_archive():
+    from PyInstaller.archive.readers import ZlibArchiveReader
+    originals = set()
+    for path in (ROOT / "videodl").rglob("*.py"):
+        public = PublicDefaults()
+        public.visit(ast.parse(path.read_text(encoding="utf-8-sig")))
+        originals.update(public.removed_values)
+    archive = ZlibArchiveReader(str(WORK / "pyinstaller/desktop/PYZ-00.pyz"))
+    checked = 0
+    for name in archive.toc:
+        if name != "videodl" and not name.startswith("videodl."):
+            continue
+        code = archive.extract(name)
+        pending = [code]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, types.CodeType):
+                pending.extend(value.co_consts)
+            elif isinstance(value, (tuple, frozenset)):
+                pending.extend(value)
+            elif isinstance(value, str) and value in originals:
+                raise RuntimeError("Embedded account/service default in bundled module: " + name)
+        checked += 1
+    if checked < 10:
+        raise RuntimeError("Upstream modules are missing from the compiled archive")
+    return checked
 
 
 def media_tools():
@@ -100,7 +136,7 @@ def main():
     if DIST.exists():
         raise SystemExit("dist/desktop already exists. Use a fresh build checkout or rename this output before rebuilding.")
     WORK.mkdir(parents=True, exist_ok=True)
-    stage_sources()
+    stage = stage_sources()
     tools, config = media_tools()
     upstream_info = json.loads((ROOT / "desktop/upstream.json").read_text(encoding="utf-8"))
     save_json(WORK / "build-info.json", {"desktop_version": __version__, **upstream_info,
@@ -108,8 +144,11 @@ def main():
     # The spec takes explicit paths rather than the developer's global PATH.
     environment = os.environ.copy()
     environment["VIDEODL_BUILD_TOOLS"] = str(tools)
+    environment["PYTHONPATH"] = str(stage)
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--distpath", str(DIST),
-                    "--workpath", str(WORK / "pyinstaller"), str(ROOT / "desktop/desktop.spec")], cwd=ROOT, env=environment, check=True)
+                    "--workpath", str(WORK / "pyinstaller"), str(ROOT / "desktop/desktop.spec")], cwd=stage, env=environment, check=True)
+    checked = assert_public_archive()
+    print("Verified public compiled modules:", checked)
     package = DIST / "VideoDL Desktop"
     shutil.copy2(ROOT / "LICENSE", package / "LICENSE.txt")
     shutil.copy2(ROOT / "desktop/README.md", package / "使用说明.md")

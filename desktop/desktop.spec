@@ -15,7 +15,7 @@ for package in ['videodl', 'fake_useragent', 'tldextract', 'pycountry', 'emoji',
     hidden += collect_submodules(package)
     data += collect_data_files(package, excludes=['**/*.wvd', '**/__pycache__/**', '**/tests/**'])
     binaries += collect_dynamic_libs(package)
-for package in ['videofetch', 'fake-useragent', 'pyfreeproxy', 'nodejs-wheel', 'nodejs-wheel-binaries', 'DrissionPage', 'DrissionGet', 'DrissionRecord', 'pywidevine', 'construct', 'puremagic']:
+for package in ['fake-useragent', 'pyfreeproxy', 'nodejs-wheel', 'nodejs-wheel-binaries', 'DrissionPage', 'DrissionGet', 'DrissionRecord', 'pywidevine', 'construct', 'puremagic']:
     data += copy_metadata(package)
 data += [(str(root / 'desktop/assets/check.svg'), 'desktop/assets'), (str(root / 'desktop/upstream.json'), 'desktop'), (str(work / 'build-info.json'), 'desktop')]
 tools = Path(os.environ['VIDEODL_BUILD_TOOLS'])
@@ -26,9 +26,12 @@ hidden += ['desktop.worker', 'desktop.adapter', 'desktop.updates', 'Crypto', 'Cr
 for p in ['Crypto', 'Cryptodome']:
     hidden += collect_submodules(p, filter=lambda name: '.SelfTest' not in name)
     binaries += collect_dynamic_libs(p)
-a = Analysis([str(root / 'desktop/entry.py')], pathex=[str(stage), str(root)], binaries=binaries, datas=data,
+a = Analysis([str(stage / 'desktop/entry.py')], pathex=[str(stage)], binaries=binaries, datas=data,
     hiddenimports=hidden, hookspath=[], hooksconfig={}, runtime_hooks=[],
     excludes=['PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtPdf', 'PySide6.QtQml', 'PySide6.QtQuick', 'tkinter', 'pytest', 'numpy', 'IPython'], noarchive=False)
+upstream_modules = [(name, filename) for name, filename, kind in a.pure if name == 'videodl' or name.startswith('videodl.')]
+if not upstream_modules or any(not Path(filename).resolve().is_relative_to(stage.resolve()) for name, filename in upstream_modules):
+    raise RuntimeError('Upstream modules must come from the isolated public build source')
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='VideoDL Desktop', icon=str(root / 'desktop/assets/app.ico'), debug=False,
     bootloader_ignore_signals=False, strip=False, upx=False, console=False,
