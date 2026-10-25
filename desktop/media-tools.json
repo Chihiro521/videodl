@@ -1,0 +1,7 @@
+{
+  "version": "FFmpeg N-128013-g6b05263b44 (LGPL shared)",
+  "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-24-13-02/ffmpeg-N-128013-g6b05263b44-win64-lgpl-shared.zip",
+  "sha256": "5afa1d603076c9432278a01678b35880fadd81c4c0ef1dc5bccf590404f8f327",
+  "source_url": "https://github.com/FFmpeg/FFmpeg/tree/6b05263b44",
+  "build_source_url": "https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-10-24-13-02"
+}

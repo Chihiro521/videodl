@@ -1,0 +1,52 @@
+name: Desktop release
+
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: desktop/requirements.lock
+      - run: python -m pip install -r desktop/requirements.lock pytest==9.1.1 pyinstaller==6.22.3
+      - name: Verify release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python -c "import os; from desktop import __version__; assert os.environ['GITHUB_REF_NAME'] == 'desktop-v' + __version__"
+      - name: Prepare pinned media tools
+        shell: pwsh
+        run: |
+          $tools = python -c "from desktop.build import media_tools; print(media_tools()[0])"
+          $tools | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - run: python -m pytest desktop/tests -q
+      - run: python -m desktop.build
+      - name: Test frozen worker without external Python or FFmpeg
+        shell: pwsh
+        run: |
+          $env:VIDEODL_TEST_EXE = Join-Path $pwd 'dist/desktop/VideoDL Desktop/VideoDL Desktop.exe'
+          python -m pytest desktop/tests/test_worker.py -q
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VideoDL-Desktop-windows-x64
+          path: |
+            dist/desktop/*.zip
+            dist/desktop/SHA256SUMS.txt
+            dist/desktop/VideoDL Desktop/build-info.json
+      - name: Create draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME 'dist/desktop/*.zip' 'dist/desktop/SHA256SUMS.txt' 'dist/desktop/VideoDL Desktop/build-info.json' --draft --title "VideoDL Desktop $env:GITHUB_REF_NAME" --notes-file desktop/RELEASE_NOTES.md

@@ -1,0 +1,31 @@
+name: Desktop checks
+
+on:
+  push:
+    branches: [desktop, 'codex/**']
+    paths: ['desktop/**', 'videodl/**', 'requirements*.txt', '.github/workflows/desktop-*.yml']
+  pull_request:
+    branches: [desktop]
+    paths: ['desktop/**', 'videodl/**', 'requirements*.txt', '.github/workflows/desktop-*.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: desktop/requirements.lock
+      - run: python -m pip install -r desktop/requirements.lock pytest==9.1.1
+      - name: Prepare pinned media tools
+        shell: pwsh
+        run: |
+          $tools = python -c "from desktop.build import media_tools; print(media_tools()[0])"
+          $tools | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - run: python -m pytest desktop/tests -q
