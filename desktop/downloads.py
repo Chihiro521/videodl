@@ -89,8 +89,9 @@ class DownloadQueue:
             job["cache_hit"] = event.get("cache_hit", False)
             job["parse_seconds"] = event.get("parse_seconds", 0)
             legacy = job.get("identity_version", 1) < 2
-            if job.get("item_keys") and not legacy:
-                items = [item for item in items if item.get("item_key") in job["item_keys"]]
+            selected_keys = event.get("selected_item_keys") or (job.get("item_keys") if not legacy else None)
+            if selected_keys:
+                items = [item for item in items if item.get("item_key") in selected_keys]
             elif job.get("indices") is not None:
                 items = [item for item in items if item["index"] in job["indices"]]
             if items:
@@ -100,9 +101,9 @@ class DownloadQueue:
                 for row in self.catalog.rows:
                     if row["id"] not in job.get("result_ids", []):
                         continue
-                    item = next((item for item in items if item["index"] == row["index"]), None)
+                    item = items[0] if legacy and len(items) == 1 else next((item for item in items if item["index"] == row["index"]), None)
                     if item:
-                        row.update(title=item["title"], item_key=item["item_key"], identity_version=2)
+                        row.update(title=item["title"], item_key=item["item_key"], index=item["index"], identity_version=2)
                         if row["kind"] == "video":
                             row["formats"] = item.get("formats", [])
                             if not row.get("format_id") and row["formats"]:

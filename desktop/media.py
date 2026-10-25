@@ -45,6 +45,11 @@ def media_key(info, index=0):
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
+def legacy_media_key(info, index=0):
+    identity = str(info.identifier) if info.identifier else f"{index}:{info.title}"
+    return hashlib.sha256(f"{info.source}\0{identity}".encode("utf-8")).hexdigest()
+
+
 def number(value):
     try:
         parts = str(value).split("/")

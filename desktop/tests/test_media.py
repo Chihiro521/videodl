@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from desktop.adapter import Adapter, DesktopError
-from desktop.media import canonical_url, media_key, normalize_formats, public_formats
+from desktop.media import canonical_url, legacy_media_key, media_key, normalize_formats, public_formats
 from desktop.results import ResultCatalog
 from desktop.session import Session
 
@@ -144,6 +144,27 @@ def test_video_and_separate_audio_are_fetched_once(tmp_path, media_server, monke
     assert result["status"] == "done", result["errors"]
     assert len(calls) == 1
     assert {f["kind"] for f in result["files"]} == {"video", "audio"}
+
+
+def test_legacy_part_selection_survives_reordering(tmp_path, media_server, monkeypatch):
+    import desktop.adapter
+    server, _ = media_server
+    adapter = Adapter(tmp_path, common=False)
+    first = adapter.parse(server + "/sample.mp4")[0]
+    first.identifier, first.title = "part-one", "第一部分"
+    second = copy.deepcopy(first)
+    second.identifier, second.title = "part-two", "第二部分"
+    old_key = legacy_media_key(second, 1)
+    monkeypatch.setattr(adapter, "parse", lambda url: [second, first])
+    monkeypatch.setattr(desktop.adapter, "Adapter", lambda *args, **kwargs: adapter)
+    command = {"action": "download", "url": server + "/sample.mp4", "output": str(tmp_path), "common": False,
+        "identity_version": 1, "item_keys": [old_key], "indices": [1], "options": {"video": True}}
+    session = Session()
+    result = session.execute(command, lambda *args, **kwargs: None)
+    assert result["status"] == "done", result["errors"]
+    assert Path(result["files"][0]["path"]).stem == "第二部分"
+    with pytest.raises(DesktopError, match="重新提取"):
+        session.execute({**command, "item_keys": ["ambiguous-old-key"]}, lambda *args, **kwargs: None)
 
 
 @pytest.fixture(scope="module")
