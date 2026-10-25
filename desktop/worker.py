@@ -39,7 +39,7 @@ def main(command_path: str) -> int:
             summary = adapter.summary(infos, with_thumbnail=command["action"] == "parse")
             report("parsed", **summary)
             if command["action"] == "download":
-                report("result", **adapter.download(infos, command["options"], command.get("indices")))
+                report("result", **adapter.download(infos, command["options"], command.get("indices"), command.get("item_keys")))
             else:
                 report("result", **summary)
             return 0

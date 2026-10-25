@@ -17,7 +17,8 @@ for package in ['videodl', 'fake_useragent', 'tldextract', 'pycountry', 'emoji',
     binaries += collect_dynamic_libs(package)
 for package in ['fake-useragent', 'pyfreeproxy', 'nodejs-wheel', 'nodejs-wheel-binaries', 'DrissionPage', 'DrissionGet', 'DrissionRecord', 'pywidevine', 'construct', 'puremagic']:
     data += copy_metadata(package)
-data += [(str(root / 'desktop/assets/check.svg'), 'desktop/assets'), (str(root / 'desktop/upstream.json'), 'desktop'), (str(work / 'build-info.json'), 'desktop')]
+data += [(str(root / 'desktop/assets' / filename), 'desktop/assets') for filename in ['check.svg', 'minus.svg', 'chevron.svg', 'chevron-dark.svg']]
+data += [(str(root / 'desktop/upstream.json'), 'desktop'), (str(work / 'build-info.json'), 'desktop')]
 tools = Path(os.environ['VIDEODL_BUILD_TOOLS'])
 for path in tools.iterdir():
     if path.suffix.lower() in {'.exe', '.dll'} and (path.suffix.lower() != '.exe' or path.stem in {'ffmpeg', 'ffprobe'}):

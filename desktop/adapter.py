@@ -5,6 +5,7 @@ particular list of platforms. Opaque stream objects remain inside the worker.
 """
 
 import base64
+import hashlib
 import copy
 import json
 import re
@@ -14,6 +15,7 @@ import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 from pathvalidate import sanitize_filename
@@ -25,6 +27,11 @@ from videodl.videodl import VideoClient
 
 class DesktopError(Exception):
     pass
+
+
+def media_key(info, index=0):
+    identity = str(info.identifier) if info.identifier else f"{index}:{info.title}"
+    return hashlib.sha256(f"{info.source}\0{identity}".encode("utf-8")).hexdigest()
 
 
 class QuietLogger:
@@ -172,9 +179,13 @@ class Adapter:
     def summary(self, infos, with_thumbnail=True):
         result = []
         for index, info in enumerate(infos):
+            url_ext = Path(urlsplit(info.download_url).path).suffix.lower().lstrip(".") if isinstance(info.download_url, str) else ""
+            audio_formats = {"mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "aiff", "wma", "mka"}
+            media_kind = "audio" if url_ext in audio_formats or str(info.ext).lower() in audio_formats else "video"
             result.append({"index": index, "title": info.title or "未命名媒体", "source": info.source,
                            "ext": info.ext, "has_cover": bool(cover_url(info.cover_url)),
-                           "separate_audio": bool(info.audio_download_url)})
+                           "separate_audio": bool(info.audio_download_url), "audio_ext": info.audio_ext,
+                           "media_kind": media_kind, "item_key": media_key(info, index)})
         thumbnail = ""
         if with_thumbnail and infos and cover_url(infos[0].cover_url):
             try:
@@ -254,22 +265,29 @@ class Adapter:
             raise DesktopError("音轨提取失败，请重试或保留视频文件。")
         return output
 
-    def download(self, infos, options, indices=None):
-        selected = infos if indices is None else [infos[i] for i in indices if 0 <= i < len(infos)]
+    def download(self, infos, options, indices=None, item_keys=None):
+        indexed = list(enumerate(infos))
+        if item_keys is not None:
+            requested = set(item_keys)
+            selected = [(index, info) for index, info in indexed if media_key(info, index) in requested]
+            if {media_key(info, index) for index, info in selected} != requested:
+                raise DesktopError("所选条目已经变化，请重新提取后再选择下载。")
+        else:
+            selected = indexed if indices is None else [(i, infos[i]) for i in indices if 0 <= i < len(infos)]
         if not selected or not any(options.get(k) for k in ("cover", "audio", "video")):
             raise DesktopError("请选择至少一个条目及一种下载内容。")
-        if options.get("audio") and any(not i.audio_download_url for i in selected) and not find_tool("ffmpeg"):
+        if options.get("audio") and any(not i.audio_download_url for _, i in selected) and not find_tool("ffmpeg"):
             raise DesktopError("音频提取需要 FFmpeg，请使用完整发行包。")
         files, errors = [], []
         self.output.mkdir(parents=True, exist_ok=True)
-        for number, original in enumerate(selected, 1):
+        for number, (source_index, original) in enumerate(selected, 1):
             info = copy.deepcopy(original)
             title = filename(info.title)
             folder = self.output / title
             folder.mkdir(parents=True, exist_ok=True)
             self.report("progress", percent=-1, detail=f"正在处理 {number}/{len(selected)}：{info.title}")
             def record(path, kind):
-                entry = {"path": str(path), "kind": kind}
+                entry = {"path": str(path), "kind": kind, "item_key": media_key(original, source_index)}
                 files.append(entry)
                 self.report("file", **entry)
             if options.get("cover"):

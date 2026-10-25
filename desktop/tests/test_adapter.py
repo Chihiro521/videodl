@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from desktop.adapter import Adapter, DesktopError, check_contract, filename
+from desktop.adapter import Adapter, DesktopError, check_contract, filename, media_key
 
 
 def digest(path):
@@ -90,3 +90,20 @@ def test_rejects_no_selection_and_invalid_links(tmp_path):
     with pytest.raises(DesktopError):
         adapter.download([], {"cover": True})
     assert ".." not in filename("../中文<测试>..")
+
+
+def test_stable_item_key_prevents_wrong_part_after_reordering(tmp_path, media_server):
+    import copy
+    server, _ = media_server
+    adapter = Adapter(tmp_path, common=False)
+    first = parse_fixture(adapter, server)[0]
+    first.identifier = "part-one"
+    second = copy.deepcopy(first)
+    second.identifier = "part-two"
+    second.title = "第二个分P"
+    selected = media_key(second, 1)
+    result = adapter.download([second, first], {"video": True}, indices=[1], item_keys=[selected])
+    assert result["status"] == "done", result["errors"]
+    assert Path(result["files"][0]["path"]).stem == "第二个分P"
+    with pytest.raises(DesktopError, match="重新提取"):
+        adapter.download([first], {"video": True}, item_keys=[selected])
