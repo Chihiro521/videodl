@@ -1,6 +1,7 @@
 """Native Windows interface, persistent batch queue, and release discovery."""
 
 import base64
+import os
 import shutil
 import sys
 import uuid
@@ -604,4 +605,12 @@ def main():
         return 0
     window = Window()
     window.show()
+    smoke_report = os.environ.get("VIDEODL_GUI_SMOKE_REPORT")
+    if smoke_report:
+        def capture_smoke():
+            path = Path(smoke_report)
+            save_json(path, {"visible": window.isVisible(), "width": window.width(), "height": window.height()})
+            window.grab().save(str(path.with_suffix(".png")))
+            window.close()
+        QTimer.singleShot(500, capture_smoke)
     return application.exec()

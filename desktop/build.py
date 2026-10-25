@@ -117,14 +117,16 @@ def main():
     shutil.copy2(WORK / "build-info.json", package / "build-info.json")
     notice = ("VideoDL Desktop " + __version__ + "\nOriginal project: https://github.com/CharlesPikachu/videodl\nDesktop project: https://github.com/Chihiro521/videodl\n\n"
               + config["version"] + "\nBinary: " + config["url"] + "\nFFmpeg source: " + config["source_url"] + "\nBuild scripts and dependency source recipes: " + config["build_source_url"]
-              + "\nFFmpeg uses shared libraries; they can be replaced in _internal/tools.\n\nPython dependency notices:\n")
+              + "\nFFmpeg uses shared libraries; they can be replaced in _internal/tools.\n"
+              + "Qt source: https://code.qt.io/cgit/qt/qtbase.git/tag/?h=v6.12.0\n"
+              + "PySide source: https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v6.12.0\n\nPython dependency notices:\n")
     for distribution in sorted(importlib.metadata.distributions(), key=lambda d: d.metadata["Name"].lower()):
         name = distribution.metadata["Name"]
         if name.lower() in {"pytest", "pyinstaller", "pyinstaller-hooks-contrib", "pip"}:
             continue
         notice += f"\n{name} {distribution.version}\n"
         for file in distribution.files or []:
-            if ("license" in file.name.lower() or "copying" in file.name.lower()) and ".dist-info" in str(file):
+            if ("license" in str(file).lower() or "copying" in str(file).lower()) and ".dist-info" in str(file):
                 actual = distribution.locate_file(file)
                 if actual.is_file() and actual.stat().st_size < 1024 * 1024:
                     notice += actual.read_text(encoding="utf-8", errors="replace") + "\n"
