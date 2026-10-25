@@ -1,3 +1,7 @@
+> **VideoDL Desktop 桌面版**：封面、独立音频、视频和批量下载队列。Windows 便携包见 [桌面发行版](https://github.com/Chihiro521/videodl/releases)，操作与开发说明见 [desktop/README.md](desktop/README.md)，分支维护见 [desktop/MAINTAINING.md](desktop/MAINTAINING.md)。
+>
+> 本分支维护桌面界面；`master` 保留原项目，上游下载内核来自下方所示项目。
+
 <div align="center">
   <img src="https://raw.githubusercontent.com/CharlesPikachu/videodl/master/docs/logo.png" width="600"/>
 </div>
