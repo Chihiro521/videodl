@@ -5,6 +5,7 @@ import sys
 import pytest
 
 from desktop.storage import save_json
+from desktop.tests.test_media import variant_server
 
 
 def test_worker_process_protocol_and_all_outputs(tmp_path, media_server):
@@ -67,3 +68,31 @@ def test_frozen_gui_extracts_selects_and_downloads(tmp_path, media_server):
     assert report["jobs"][0]["status"] == "done"
     assert report["jobs"][0]["options"] == {"video": False, "audio": True, "cover": False}
     assert __import__("pathlib").Path(report["jobs"][0]["files"][0]["path"]).is_file()
+    assert report["jobs"][0]["cache_hit"]
+
+
+@pytest.mark.skipif(not os.environ.get("VIDEODL_TEST_EXE"), reason="requires packaged executable")
+@pytest.mark.parametrize("manifest", ["master.m3u8", "manifest.mpd"])
+def test_frozen_gui_downloads_chosen_quality(tmp_path, variant_server, manifest):
+    from pathlib import Path
+    server, _ = variant_server
+    command = tmp_path / "quality-input.json"
+    save_json(command, {"url": server + "/" + manifest, "output": str(tmp_path / "下载"), "kind": "video", "quality_index": 1})
+    environment = os.environ.copy()
+    environment["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    environment.update(QT_QPA_PLATFORM="offscreen", VIDEODL_DESKTOP_DATA=str(tmp_path / "appdata"),
+        VIDEODL_GUI_SMOKE_REPORT=str(tmp_path / "quality-report.json"), VIDEODL_GUI_SMOKE_INPUT=str(command))
+    result = subprocess.run([os.environ["VIDEODL_TEST_EXE"]], capture_output=True, env=environment, timeout=130)
+    assert result.returncode == 0
+    report = json.loads((tmp_path / "quality-report.json").read_text(encoding="utf-8"))
+    assert not report["error"], report
+    assert report["jobs"][0]["status"] == "done", report
+    assert report["jobs"][0]["cache_hit"]
+    row = next(row for row in report["results"] if row["kind"] == "video")
+    assert [f["resolution"] for f in row["formats"]] == [360, 180]
+    assert row["format_id"] == row["formats"][1]["id"]
+    video = report["jobs"][0]["files"][0]
+    probe = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", video["path"]]))
+    assert (probe["streams"][0]["width"], probe["streams"][0]["height"]) == (320, 180)

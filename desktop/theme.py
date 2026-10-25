@@ -128,6 +128,7 @@ QLineEdit, QPlainTextEdit, QComboBox, QSpinBox { background: white; border: 1px 
 QLineEdit:focus, QPlainTextEdit:focus { border: 1px solid #6495ed; }
 QPlainTextEdit#linkInput { padding: 10px 12px; }
 QComboBox { min-height: 19px; padding-right: 24px; }
+QComboBox#qualityChoice { min-height: 18px; padding: 4px 8px; padding-right: 24px; }
 QComboBox::drop-down { border: none; width: 23px; }
 QComboBox::down-arrow { image: url(ARROW_DARK_ASSET); width: 11px; height: 11px; }
 QCheckBox { spacing: 8px; background: transparent; }

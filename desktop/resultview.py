@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QCheckBox, QHBoxLayout, QMenu, QTableWidgetItem, QToolButton, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QHBoxLayout, QMenu, QTableWidgetItem, QToolButton, QWidget
 
 from .downloads import STATES
 from .results import KINDS
@@ -20,6 +20,13 @@ class ResultView:
     def render_results(self, *_):
         rows = self.visible_results()
         self.result_row_map = {}
+        # Replaced index widgets are deleted later by Qt. Hide them immediately
+        # so a refresh never paints stale controls over another result row.
+        for position in range(self.results_table.rowCount()):
+            for column in (0, 2, 4):
+                previous = self.results_table.cellWidget(position, column)
+                if previous:
+                    previous.hide()
         self.results_table.setRowCount(len(rows))
         for number, row in enumerate(rows):
             self.result_row_map[row["id"]] = number
@@ -37,7 +44,25 @@ class ResultView:
             title.setToolTip(f"{row['title']}\n{public_host(row['url'])}")
             self.results_table.setItem(number, 1, title)
             text = ("视频 · " + (row.get("ext") or "原始格式").upper()) if row["kind"] == "video" else "音频 · 原始音轨" if row["kind"] == "audio" else "图片 · 原始封面"
-            self.results_table.setItem(number, 2, QTableWidgetItem(icon(row["kind"], "#64748b", 18), text))
+            if row["kind"] == "video":
+                combo = QComboBox()
+                combo.setObjectName("qualityChoice")
+                combo.setAccessibleName(f"下载画质：{row['title']}")
+                formats = row.get("formats") or [{"id": "", "label": "来源画质-" + (row.get("ext") or "mp4").upper()}]
+                for entry in formats:
+                    combo.addItem(icon("video", "#64748b", 18), entry["label"], entry["id"])
+                combo.setCurrentIndex(max(0, combo.findData(row.get("format_id", ""))))
+                combo.setEnabled(self.row_state(row)[0] not in ("waiting", "active"))
+                combo.setToolTip("选择本条视频的下载画质" if len(formats) > 1 else "来源当前提供这一档画质")
+                combo.currentIndexChanged.connect(lambda _, current=row, control=combo: self.set_result_format(current, control.currentData()))
+                wrapper = QWidget()
+                layout = QHBoxLayout(wrapper)
+                layout.setContentsMargins(7, 8, 7, 8)
+                layout.addWidget(combo)
+                self.results_table.setCellWidget(number, 2, wrapper)
+            else:
+                self.results_table.setCellWidget(number, 2, None)
+                self.results_table.setItem(number, 2, QTableWidgetItem(icon(row["kind"], "#64748b", 18), text))
             self.results_table.setItem(number, 3, QTableWidgetItem())
             actions = QWidget()
             actions_box = QHBoxLayout(actions)
@@ -64,6 +89,14 @@ class ResultView:
         prefix = f"显示 {len(rows)} / 共 {len(self.catalog.rows)} 项" if self.type_filter.currentData() or self.result_search.text() else f"共 {len(self.catalog.rows)} 项"
         self.result_summary.setText(f"{prefix}（{detail}）" if detail else "暂无提取结果")
         self.refresh_result_status()
+
+    def set_result_format(self, row, format_id):
+        if row.get("format_id", "") == format_id:
+            return
+        row.update(format_id=format_id, file="", job_id="", status="idle", detail="已切换画质，等待下载")
+        self.persist()
+        self.refresh_result_status()
+        self.update_selection()
 
     def set_result_checked(self, row, checked):
         row["checked"] = checked
@@ -111,6 +144,10 @@ class ResultView:
             status.setToolTip(detail)
             color = "#16a34a" if state == "done" else "#2563eb" if state in ("waiting", "active") else "#dc2626" if state in ("failed", "partial") else "#64748b"
             status.setForeground(QColor(color))
+            quality_cell = self.results_table.cellWidget(position, 2)
+            quality = quality_cell.findChild(QComboBox, "qualityChoice") if quality_cell else None
+            if quality:
+                quality.setEnabled(state not in ("waiting", "active"))
             action = self.results_table.cellWidget(position, 4).findChild(QToolButton, "resultDownload")
             action.setIcon(icon("folder" if state == "done" else "queue" if state in ("waiting", "active") else "download", "#2563eb", 19))
             action.setToolTip("打开文件所在位置" if state == "done" else "查看下载进度" if state in ("waiting", "active") else "下载该项")

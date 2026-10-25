@@ -13,6 +13,7 @@ from .downloads import DownloadQueue
 from .extraction import ExtractionController
 from .pages import WorkbenchPages
 from .process import Worker
+from .pool import EnginePool
 from .results import ResultCatalog
 from .resultview import ResultView
 from .storage import data_dir, load_json, parse_links, save_json
@@ -27,6 +28,7 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
         self.resize(1180, 800)
         self.setMinimumSize(980, 680)
         self.store = data_dir()
+        self.engine_pool = EnginePool(self)
         self.settings = load_json(self.store / "settings.json", {})
         if not isinstance(self.settings, dict):
             self.settings = {}
@@ -152,6 +154,7 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
             if not worker.process.waitForFinished(4000):
                 worker.process.kill()
                 worker.process.waitForFinished(1000)
+        self.engine_pool.close()
         self.persist()
         event.accept()
 

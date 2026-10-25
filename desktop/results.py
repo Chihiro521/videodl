@@ -16,10 +16,11 @@ class ResultCatalog:
                 continue
             if not isinstance(row["index"], int) or row["index"] < 0:
                 continue
-            self.rows.append({**row, "checked": False})
+            self.rows.append({"formats": [], "format_id": "", "identity_version": 1, **row, "checked": False})
 
     def replace_summary(self, url, items):
         old = {row["id"]: row for row in self.rows if row["url"] == url}
+        by_key = {(row.get("item_key"), row["kind"]): row for row in old.values()}
         fresh = []
         for item in items:
             index = item["index"]
@@ -29,8 +30,14 @@ class ResultCatalog:
                 kinds.append("cover")
             for kind in kinds:
                 row_id = hashlib.sha256(f"{url}\0{key}\0{kind}".encode("utf-8")).hexdigest()
-                previous = old.get(row_id, {})
+                previous = old.get(row_id) or by_key.get((item.get("item_key"), kind)) or next((row for row in old.values()
+                    if row.get("identity_version", 1) < 2 and row["index"] == index and row["kind"] == kind), {})
+                formats = item.get("formats", []) if kind == "video" else []
+                chosen = previous.get("format_id", "")
+                if not any(f["id"] == chosen for f in formats):
+                    chosen = formats[0]["id"] if formats else ""
                 fresh.append({"id": row_id, "url": url, "index": index, "item_key": item.get("item_key", ""),
+                    "identity_version": item.get("identity_version", 2), "formats": formats, "format_id": chosen,
                     "title": item.get("title") or "未命名媒体", "source": item.get("source", ""),
                     "kind": kind, "ext": item.get("ext", ""), "audio_ext": item.get("audio_ext", ""),
                     "separate_audio": bool(item.get("separate_audio")), "checked": previous.get("checked", False),
@@ -55,7 +62,10 @@ class ResultCatalog:
             if key not in groups:
                 groups[key] = {"url": row["url"], "title": row["title"], "indices": [row["index"]],
                     "item_keys": [row["item_key"]] if row.get("item_key") else None,
+                    "identity_version": row.get("identity_version", 1), "format_ids": {},
                     "options": {kind: False for kind in KINDS}, "result_ids": []}
+            if row["kind"] == "video" and row.get("format_id") and row.get("item_key"):
+                groups[key]["format_ids"][row["item_key"]] = row["format_id"]
             groups[key]["options"][row["kind"]] = True
             if row["id"] not in groups[key]["result_ids"]:
                 groups[key]["result_ids"].append(row["id"])
@@ -71,7 +81,8 @@ class ResultCatalog:
             if row.get("job_id") != job["id"]:
                 continue
             files = [f for f in job.get("files", []) if f["kind"] == row["kind"]
-                     and (not f.get("item_key") or f["item_key"] == row.get("item_key"))]
+                     and (not f.get("item_key") or f["item_key"] == row.get("item_key"))
+                     and (row["kind"] != "video" or not row.get("format_id") or not f.get("format_id") or f["format_id"] == row["format_id"])]
             if files:
                 row.update(file=files[-1]["path"], status="done", detail="下载完成")
             else:

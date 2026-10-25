@@ -80,6 +80,7 @@ def test_batch_extract_filter_select_download_and_restore(application, tmp_path,
     assert window.jobs[0]["options"] == {"video": True, "audio": False, "cover": False}
     video = next(row for row in window.catalog.rows if row["kind"] == "video")
     assert video["status"] == "done", window.jobs[0]["detail"]
+    assert window.jobs[0]["cache_hit"], "download should reuse the extracted object in a live engine"
     assert video["file"].endswith(".mp4")
     assert all(row["status"] == "idle" for row in window.catalog.rows if row["kind"] == "audio")
     stored = load_json(tmp_path / "appdata/results.json", [])
@@ -127,6 +128,46 @@ def test_auto_download_respects_type_preferences(application, tmp_path, monkeypa
     spin(application, lambda: bool(window.extraction_active or window.extraction_waiting or window.running))
     assert len(window.jobs) == 1
     assert window.jobs[0]["status"] == "done", window.jobs[0]["detail"]
+    assert window.jobs[0]["cache_hit"], "auto-download must wait for the parsing engine to be reusable"
     assert [entry["kind"] for entry in window.jobs[0]["files"]] == ["audio"]
     assert next(row for row in window.catalog.rows if row["kind"] == "video")["status"] == "idle"
+    window.close()
+
+
+def test_inline_quality_survives_filter_and_changes_download_plan(application, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QComboBox
+    monkeypatch.setenv("VIDEODL_DESKTOP_DATA", str(tmp_path / "appdata"))
+    window = Window()
+    window.paused = True
+    window.destination.setText(str(tmp_path / "output"))
+    formats = [{"id": "high", "label": "1080p-MP4"}, {"id": "low", "label": "720p-MP4"}]
+    rows = window.catalog.replace_summary("https://example.test/a", [{**summary(), "formats": formats, "identity_version": 2}])
+    window.render_results()
+    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice")
+    assert combo.currentData() == "high"
+    combo.setCurrentIndex(1)
+    window.type_filter.setCurrentIndex(window.type_filter.findData("audio"))
+    window.type_filter.setCurrentIndex(window.type_filter.findData("video"))
+    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice")
+    assert combo.currentData() == "low"
+    window.download_results([rows[0]])
+    assert window.jobs[0]["format_ids"] == {"a" * 64: "low"}
+    assert not window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice").isEnabled()
+    window.close()
+
+
+def test_legacy_failed_record_downloads_without_manual_reextract(application, tmp_path, monkeypatch, media_server):
+    server, _ = media_server
+    monkeypatch.setenv("VIDEODL_DESKTOP_DATA", str(tmp_path / "appdata"))
+    window = Window()
+    window.destination.setText(str(tmp_path / "output"))
+    window.common.setChecked(False)
+    rows = window.catalog.replace_summary(server + "/sample.mp4", [{**summary(key="legacy-changing-title-key"), "identity_version": 1}])
+    rows[0]["status"] = "failed"
+    window.download_results([rows[0]])
+    spin(application, lambda: bool(window.running))
+    assert window.jobs[0]["status"] == "done", window.jobs[0]["detail"]
+    assert rows[0]["status"] == "done"
+    assert rows[0]["identity_version"] == 2
+    assert rows[0]["item_key"] != "legacy-changing-title-key"
     window.close()

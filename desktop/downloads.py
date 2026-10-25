@@ -26,6 +26,7 @@ class DownloadQueue:
                 and job["options"] == group["options"] and job["output"] == output
                 and job.get("indices") == group.get("indices")
                 and job.get("item_keys") == group.get("item_keys")
+                and job.get("format_ids", {}) == group.get("format_ids", {})
                 and job["status"] in ("waiting", "active")), None)
             if existing:
                 existing["result_ids"] = list(dict.fromkeys(existing.get("result_ids", []) + group.get("result_ids", [])))
@@ -70,7 +71,7 @@ class DownloadQueue:
                 continue
             job.update(status="active", detail="正在准备下载")
             command = {"action": "download", **{key: job.get(key) for key in
-                ("url", "output", "options", "indices", "item_keys", "common")}}
+                ("url", "output", "options", "indices", "item_keys", "common", "format_ids", "identity_version")}}
             worker = Worker(command, self)
             self.running[job["id"]] = worker
             worker.event.connect(lambda event, current=job: self.job_event(current, event))
@@ -85,18 +86,35 @@ class DownloadQueue:
         kind = event["event"]
         if kind == "parsed" and event.get("items"):
             items = event["items"]
-            if job.get("item_keys"):
-                items = [item for item in items if item.get("item_key") in job["item_keys"]]
+            job["cache_hit"] = event.get("cache_hit", False)
+            job["parse_seconds"] = event.get("parse_seconds", 0)
+            legacy = job.get("identity_version", 1) < 2
+            selected_keys = event.get("selected_item_keys") or (job.get("item_keys") if not legacy else None)
+            if selected_keys:
+                items = [item for item in items if item.get("item_key") in selected_keys]
             elif job.get("indices") is not None:
                 items = [item for item in items if item["index"] in job["indices"]]
             if items:
                 job["title"] = items[0]["title"] + (f" 等 {len(items)} 个条目" if len(items) > 1 else "")
+                if legacy:
+                    job.update(identity_version=2, item_keys=[item["item_key"] for item in items])
+                for row in self.catalog.rows:
+                    if row["id"] not in job.get("result_ids", []):
+                        continue
+                    item = items[0] if legacy and len(items) == 1 else next((item for item in items if item["index"] == row["index"]), None)
+                    if item:
+                        row.update(title=item["title"], item_key=item["item_key"], index=item["index"], identity_version=2)
+                        if row["kind"] == "video":
+                            row["formats"] = item.get("formats", [])
+                            if not row.get("format_id") and row["formats"]:
+                                row["format_id"] = row["formats"][0]["id"]
+                self.render_results()
             self.render_queue()
         elif kind == "progress":
             job.update(detail=event.get("detail", "正在下载"), percent=event.get("percent", -1))
             self.update_progress(job)
         elif kind == "file":
-            job["files"].append({key: event[key] for key in ("path", "kind", "item_key") if key in event})
+            job["files"].append({key: event[key] for key in ("path", "kind", "item_key", "format_id") if key in event})
         elif kind == "result":
             job["status"] = event.get("status", "done")
             job["files"] = event.get("files", job["files"])

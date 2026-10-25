@@ -27,15 +27,27 @@ class Worker(QObject):
         self.ended = False
         self.killer = None
         self.scratch = set()
+        self.engine = None
+        self.succeeded = False
+        self.pending = None
         self.process = QProcess(self)
         self.timer = QTimer(self)
         self.timer.setInterval(120)
         self.timer.timeout.connect(self.poll)
         self.process.finished.connect(self._finish)
         self.process.errorOccurred.connect(self._process_error)
+        self.deadline = QTimer(self)
+        self.deadline.setSingleShot(True)
+        self.deadline.timeout.connect(self.parse_timeout)
 
     def start(self):
         save_json(self.path, self.command)
+        pool = getattr(self.parent(), "engine_pool", None)
+        if pool is not None and self.command["action"] in ("parse", "download"):
+            pool.submit(self)
+            self.deadline.start(60000)
+            self.timer.start()
+            return
         if getattr(sys, "frozen", False):
             args = ["--worker", str(self.path)]
             cwd = str(Path(sys.executable).parent)
@@ -55,6 +67,22 @@ class Worker(QObject):
                         break
                     self.offset = stream.tell()
                     event = json.loads(line.decode("utf-8"))
+                    if event["event"] == "phase":
+                        if not self.deadline.isActive():
+                            self.deadline.start(60000)
+                        continue
+                    if event["event"] == "parsed":
+                        self.deadline.stop()
+                        self.succeeded = True
+                    if self.engine and event["event"] in ("result", "error"):
+                        self.pending = event
+                        continue
+                    if event["event"] == "complete":
+                        self.timer.stop()
+                        # Windows cannot unlink the event file while this reader
+                        # is open. Release the file before completing the task.
+                        QTimer.singleShot(0, lambda code=event.get("code", 0): self._finish(code))
+                        return
                     if event.get("event") == "scratch":
                         self.scratch.add(event["path"])
                     self.event.emit(event)
@@ -81,12 +109,25 @@ class Worker(QObject):
             self.event.emit({"event": "error", "message": "后台进程启动失败，请重新打开程序。"})
             self._finish(1)
 
+    def parse_timeout(self):
+        self.pending = {"event": "error", "message": "提取超时（60 秒），可稍后重试。"}
+        if self.engine:
+            self.engine.stop()
+        else:
+            self.process.kill()
+
     def _finish(self, code, *_):
         if self.ended:
             return
         self.ended = True
         self.timer.stop()
+        self.deadline.stop()
         self.poll()
+        if self.engine:
+            self.engine.release(self)
+        if self.pending:
+            self.event.emit(self.pending)
+            self.pending = None
         if self.command.get("output"):
             root = Path(self.command["output"]).resolve()
             for name in sorted(self.scratch, key=len, reverse=True):

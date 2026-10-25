@@ -2,6 +2,9 @@ import sys
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--engine":
+        from .worker import engine
+        return engine(sys.argv[2])
     if len(sys.argv) == 3 and sys.argv[1] == "--worker":
         from .worker import main as worker_main
         return worker_main(sys.argv[2])
