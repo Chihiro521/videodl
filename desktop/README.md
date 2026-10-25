@@ -69,10 +69,12 @@ uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.lock py
 
 构建只收录所需的源码和资源，生成独立的发行用上游副本，清除源码内置的 Cookie、服务 token 和密钥默认值；相关解析器的可用性仍需单独验证。构建不会修改工作区的上游源码。发行包不包含 `.wvd` 身份文件、本机配置、日志和历史下载。`public-build-audit.json` 记录处理的字段名，`build-info.json` 记录构建版本，`THIRD-PARTY-NOTICES.txt` 保留依赖说明与来源。
 
-推送 `desktop-v0.2.0` 等版本标签会触发 Windows 测试和打包，并创建 GitHub 草稿发行版。验证草稿附件后发布。具体分支操作见 [MAINTAINING.md](MAINTAINING.md)。
+推送 `desktop-v0.3.0` 等版本标签会触发 Windows 测试和打包，并创建 GitHub 草稿发行版。验证草稿附件后发布。具体分支操作见 [MAINTAINING.md](MAINTAINING.md)。
 
 ## 验证范围
 
 自动测试使用本地 HTTP 服务提供的真实小型媒体，覆盖批量提取、类型筛选、勾选下载、自动下载偏好、结果恢复、条目重新匹配、三种输出、原始音频数据一致性、同名文件、部分失败、队列恢复和取消。打包版本在精简 PATH 下验证窗口启动、后台下载以及“提取→选择→下载”的完整 GUI 流程。
 
 平台解析能力继承自上游；各平台网站变化、登录状态和外部接口可用性都会影响结果。具体平台实测结果记录在每个发行版说明中。
+
+本机性能与验证记录见 [v0.3.0 验证记录](VALIDATION_0.3.0.md)。可用 `python -m desktop.benchmark --old 旧版exe --new 新版exe --media 小型MP4 --output 全新记录目录` 重复比较两个便携版本，默认交替运行三轮。

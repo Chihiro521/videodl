@@ -20,6 +20,13 @@ class ResultView:
     def render_results(self, *_):
         rows = self.visible_results()
         self.result_row_map = {}
+        # Replaced index widgets are deleted later by Qt. Hide them immediately
+        # so a refresh never paints stale controls over another result row.
+        for position in range(self.results_table.rowCount()):
+            for column in (0, 2, 4):
+                previous = self.results_table.cellWidget(position, column)
+                if previous:
+                    previous.hide()
         self.results_table.setRowCount(len(rows))
         for number, row in enumerate(rows):
             self.result_row_map[row["id"]] = number

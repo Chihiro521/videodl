@@ -364,10 +364,10 @@ class Adapter:
                     errors.append("视频：" + download_error(exc))
             if options.get("audio"):
                 try:
-                    if info.audio_download_url:
-                        audio = self.fetch_media(info, unique_path(folder / f"{title}.{extension(info.audio_ext, 'm4a')}"), audio_only=True)
-                    elif media:
+                    if media:
                         audio = self.extract_audio(media, folder / title)
+                    elif info.audio_download_url:
+                        audio = self.fetch_media(info, unique_path(folder / f"{title}.{extension(info.audio_ext, 'm4a')}"), audio_only=True)
                     else:
                         # Upstream temporary downloads stay on the chosen disk and
                         # are removed even when extraction fails.

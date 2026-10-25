@@ -35,6 +35,19 @@ def test_format_resources_refresh_without_exposing_signed_urls():
     assert "signature" not in public and "cdn.test" not in public and '"url"' not in public
 
 
+def test_intermediate_generation_jobs_are_not_download_options(tmp_path):
+    adapter = Adapter(tmp_path, common=False)
+    raw = {"api": {"mediaItems": [{"type": "video", "mediaQuality": "1080p", "mediaUrl": "https://jobs.test/high"},
+        {"type": "video", "mediaQuality": "720p", "mediaUrl": "https://jobs.test/low"}]}}
+    info = adapter.new_info(source="YouTubeVideoClient", title="真实视频标题", identifier="video-id", raw_data=raw,
+        download_url="https://cdn.test/actual.mp4")
+    adapter.parser.deadline = 0
+    adapter.parser.enrich([info], "https://www.youtube.com/watch?v=video-id")
+    formats = info._desktop_formats
+    assert len(formats) == 1
+    assert formats[0]["url"] == "https://cdn.test/actual.mp4"
+
+
 def test_cache_expires_evicts_and_reuses_opaque_objects(tmp_path, monkeypatch):
     import desktop.adapter
     now, calls = [0], []
@@ -113,6 +126,24 @@ def test_expired_cached_video_refresh_keeps_already_saved_cover(tmp_path, monkey
     assert result["status"] == "done"
     assert [f["kind"] for f in result["files"]] == ["cover", "video"]
     assert requested[-1] == {"video": True, "cover": False}
+
+
+def test_video_and_separate_audio_are_fetched_once(tmp_path, media_server, monkeypatch):
+    server, _ = media_server
+    adapter = Adapter(tmp_path, common=False)
+    infos = adapter.parse(server + "/sample.mp4")
+    infos[0].audio_download_url = server + "/audio.m4a"
+    infos[0].audio_ext = "m4a"
+    original, calls = adapter.fetch_media, []
+    def fetch(info, target, audio_only=False):
+        if audio_only:
+            calls.append(info.audio_download_url)
+        return original(info, target, audio_only)
+    monkeypatch.setattr(adapter, "fetch_media", fetch)
+    result = adapter.download(infos, {"video": True, "audio": True})
+    assert result["status"] == "done", result["errors"]
+    assert len(calls) == 1
+    assert {f["kind"] for f in result["files"]} == {"video", "audio"}
 
 
 @pytest.fixture(scope="module")

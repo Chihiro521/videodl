@@ -187,6 +187,10 @@ class Parsing:
             info._desktop_single = len(infos) == 1
             if not getattr(info, "_desktop_formats", None):
                 resources = raw_formats(info.raw_data if isinstance(info.raw_data, dict) else {})
+                if info.source == "YouTubeVideoClient" and isinstance(info.raw_data, dict) and info.raw_data.get("api"):
+                    # mediaItems from this provider are generation jobs. Expose
+                    # the SDK's already resolved resource, never a job address.
+                    resources = []
                 # Existing selected streams are usable even when no variants exist.
                 if not resources:
                     stream = info.download_url
