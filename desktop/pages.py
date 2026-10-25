@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout,
-    QHeaderView, QLineEdit, QMenu, QPlainTextEdit, QSizePolicy, QSpinBox, QStackedWidget,
+    QHeaderView, QLineEdit, QMenu, QPlainTextEdit, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget,
     QTableWidget, QToolButton, QVBoxLayout, QWidget)
 
 from . import REPOSITORY, __version__
@@ -269,6 +269,8 @@ class WorkbenchPages:
         box.addWidget(label("开启后可尝试更多来源，部分链接的等待时间会增加。", "muted"))
         form = QFormLayout()
         self.extract_concurrency = QSpinBox()
+        self.extract_concurrency.setMinimumHeight(36)
+        self.extract_concurrency.setMaximumWidth(120)
         self.extract_concurrency.setRange(1, 3)
         self.extract_concurrency.setValue(max(1, min(3, int(self.settings.get("extract_concurrency", 2)))))
         self.extract_concurrency.valueChanged.connect(self.persist)
@@ -311,7 +313,11 @@ class WorkbenchPages:
         box.addLayout(row)
         layout.addWidget(frame)
         layout.addStretch()
-        return page
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(page)
+        return scroll
 
     def _updates_page(self):
         page, layout = self.page("关于与更新", "VideoDL Desktop")
