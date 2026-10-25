@@ -44,3 +44,26 @@ def test_frozen_gui_starts_without_a_system_python(tmp_path):
     assert report["visible"]
     assert report["width"] >= 940
     assert (tmp_path / "gui.png").stat().st_size > 20000
+
+
+@pytest.mark.skipif(not os.environ.get("VIDEODL_TEST_EXE"), reason="requires packaged executable")
+def test_frozen_gui_extracts_selects_and_downloads(tmp_path, media_server):
+    server, _ = media_server
+    command = tmp_path / "flow-input.json"
+    save_json(command, {"url": server + "/sample.mp4", "output": str(tmp_path / "下载"), "kind": "audio"})
+    environment = os.environ.copy()
+    environment["PATH"] = str(__import__("pathlib").Path(os.environ["SystemRoot"]) / "System32")
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    environment.update(QT_QPA_PLATFORM="offscreen", VIDEODL_DESKTOP_DATA=str(tmp_path / "appdata"),
+        VIDEODL_GUI_SMOKE_REPORT=str(tmp_path / "flow-report.json"), VIDEODL_GUI_SMOKE_INPUT=str(command))
+    result = subprocess.run([os.environ["VIDEODL_TEST_EXE"]], capture_output=True, env=environment, timeout=130)
+    assert result.returncode == 0
+    report = json.loads((tmp_path / "flow-report.json").read_text(encoding="utf-8"))
+    assert not report["error"], report
+    assert not report["failures"]
+    assert len(report["results"]) == 2
+    assert len(report["jobs"]) == 1
+    assert report["jobs"][0]["status"] == "done"
+    assert report["jobs"][0]["options"] == {"video": False, "audio": True, "cover": False}
+    assert __import__("pathlib").Path(report["jobs"][0]["files"][0]["path"]).is_file()
