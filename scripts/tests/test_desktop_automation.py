@@ -140,6 +140,20 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD"), self.base)
         self.assertEqual(self.git("branch", "--show-current"), "desktop")
 
+    def test_generated_reports_do_not_open_sync_prs(self):
+        self.upstream({"daily_test_results/videodl_status.json": "{}\n"})
+        remote = self.root / "remote.git"
+        automation.run(self.root, "git", "init", "--bare", str(remote))
+        self.git("remote", "add", "origin", str(remote))
+        self.git("push", "origin", "desktop")
+        original_run = automation.run
+        def commands(root, *args, **kwargs):
+            self.assertNotEqual(args[0], "gh", "generated reports must not call the PR API")
+            return original_run(root, *args, **kwargs)
+        with patch.object(automation, "UPSTREAM", str(self.root)), patch.object(automation, "run", commands):
+            automation.sync(self.root, publish=True)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.base)
+
     def test_release_requires_reviewed_branch_and_matching_version(self):
         self.git("update-ref", "refs/remotes/origin/desktop", self.base)
         original_git = automation.git

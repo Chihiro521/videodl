@@ -11,6 +11,7 @@ from pathlib import Path
 REPOSITORY = "Chihiro521/videodl"
 UPSTREAM = "https://github.com/CharlesPikachu/videodl.git"
 OWNED = (".github", "desktop", "scripts/desktop_automation.py", "scripts/desktop_release.py", "scripts/tests", "scripts/sync-desktop.ps1", "requirements-desktop.txt", "启动桌面版.vbs")
+GENERATED = ("daily_test_results",)
 SHA = re.compile(r"[0-9a-f]{40}")
 VERSION = re.compile(r"\d+\.\d+\.\d+")
 
@@ -40,6 +41,10 @@ def owned(path):
     return any(path == prefix or path.startswith(prefix + "/") for prefix in OWNED)
 
 
+def generated(path):
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in GENERATED)
+
+
 def changed_files(root, base, head="HEAD"):
     return [p for p in git(root, "diff", "--name-only", "-z", base, head).stdout.split("\0") if p]
 
@@ -63,14 +68,14 @@ def merge_upstream(root, revision):
     base = git(root, "rev-parse", "HEAD").stdout.strip()
     merge_base = git(root, "merge-base", base, revision).stdout.strip()
     incoming = changed_files(root, merge_base, revision)
-    preserved = [p for p in incoming if owned(p)]
+    preserved = [p for p in incoming if owned(p) or generated(p)]
     git(root, "merge", "--no-commit", "--no-ff", revision, check=False)
     if git(root, "rev-parse", "--verify", "MERGE_HEAD", check=False).returncode:
         raise ValueError("无法建立上游合并，请检查 Git 历史。")
     # Keep the desktop automation, dependency lock and entrypoint exactly as
     # reviewed on the target branch, even when upstream modifies them.
     existing = set(git(root, "ls-tree", "-r", "--name-only", base).stdout.splitlines())
-    restore = [p for p in OWNED if any(f == p or f.startswith(p + "/") for f in existing)]
+    restore = [p for p in OWNED + GENERATED if any(f == p or f.startswith(p + "/") for f in existing)]
     git(root, "restore", "--source=" + base, "--staged", "--worktree", "--", *restore)
     conflicts = [p for p in git(root, "diff", "--name-only", "--diff-filter=U").stdout.splitlines() if p]
     if conflicts:
@@ -95,7 +100,7 @@ def guard(root, base, branch):
     if not SHA.fullmatch(revision) or git(root, "merge-base", "--is-ancestor", revision, "HEAD", check=False).returncode:
         raise ValueError("上游记录必须对应已包含在当前历史中的完整提交。")
     if branch.startswith("codex/sync-upstream-"):
-        forbidden = [p for p in changed_files(root, base) if owned(p) and p != "desktop/upstream.json"]
+        forbidden = [p for p in changed_files(root, base) if (owned(p) and p != "desktop/upstream.json") or generated(p)]
         if forbidden:
             raise ValueError("同步 PR 修改了桌面维护文件，请改用单独的适配 PR：" + ", ".join(forbidden))
     print("自动化边界与上游版本记录检查通过。")
@@ -117,6 +122,10 @@ def sync(root, publish=False):
     revision = git(root, "rev-parse", "refs/remotes/trusted-upstream/master").stdout.strip()
     if git(root, "merge-base", "--is-ancestor", revision, "origin/desktop", check=False).returncode == 0:
         summarize("已包含上游最新提交；本次没有创建 PR。")
+        return
+    shared = git(root, "merge-base", "origin/desktop", revision).stdout.strip()
+    if not any(not generated(p) for p in changed_files(root, shared, revision)):
+        summarize("上游仅更新测试报告或示例视频；本次没有创建源码同步 PR。")
         return
     prs = json.loads(run(root, "gh", "pr", "list", "--repo", REPOSITORY, "--base", "desktop", "--state", "open", "--json", "number,headRefName,url").stdout) if publish else []
     existing = next((p for p in prs if p["headRefName"].startswith("codex/sync-upstream-")), None)

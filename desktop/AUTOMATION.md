@@ -6,7 +6,7 @@
 
 GitHub Actions → **Desktop upstream sync** 每天运行一次，也可点击 **Run workflow** 手动检查。
 
-1. 获取原作者 `CharlesPikachu/videodl` 的 `master`，比较完整提交号；没有更新就结束。
+1. 获取原作者 `CharlesPikachu/videodl` 的 `master`，比较完整提交号；没有更新就结束。仅更新 `daily_test_results/` 测试报告及示例视频时不创建源码同步 PR；该目录也不会随源码更新导入。
 2. 有更新时创建 `codex/sync-upstream-提交号` 草稿 PR，目标为 `desktop`。
 3. 同步进程只做 Git 操作和 AST 静态版本读取，保持 `.github/`、`desktop/`、桌面依赖及维护脚本的既有版本。未引入的上游维护文件会列在 PR 中。
 4. 自动启动代码扫描、依赖审查、边界检查及 Windows 功能测试。使用仓库短期令牌，不需要个人 Token。
