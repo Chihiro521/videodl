@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+import subprocess
 from subprocess import CompletedProcess
 from pathlib import Path
 from unittest.mock import patch
@@ -37,6 +38,7 @@ class AutomationTests(unittest.TestCase):
         self.write("desktop/upstream.json", json.dumps({"upstream_revision": self.upstream_base}))
         self.write(".github/workflows/desktop-ci.yml", "trusted\n")
         self.write("scripts/desktop_automation.py", "trusted\n")
+        self.write("启动桌面版.vbs", "trusted launcher\n")
         self.git("add", ".")
         self.git("commit", "-m", "desktop files")
         self.base = self.git("rev-parse", "HEAD")
@@ -65,12 +67,14 @@ class AutomationTests(unittest.TestCase):
                                   ".github/workflows/desktop-ci.yml": "upstream replacement\n",
                                   ".github/workflows/new.yml": "unreviewed\n",
                                   "daily_test_results/new-report.json": "{}\n",
+                                  "启动桌面版.vbs": "unreviewed launcher\n",
                                   "desktop/__init__.py": "__version__ = '99.0.0'\n"})
         result = automation.merge_upstream(self.root, revision)
         self.assertFalse(result["blocked"])
         self.assertEqual((self.root / ".github/workflows/desktop-ci.yml").read_text(), "trusted\n")
         self.assertFalse((self.root / ".github/workflows/new.yml").exists())
         self.assertFalse((self.root / "daily_test_results/new-report.json").exists())
+        self.assertEqual((self.root / "启动桌面版.vbs").read_text(), "trusted launcher\n")
         self.assertIn("updated", (self.root / "videodl/parser.py").read_text())
         metadata = json.loads((self.root / "desktop/upstream.json").read_text())
         self.assertEqual(metadata["core_version"], "0.9.2")
@@ -104,6 +108,14 @@ class AutomationTests(unittest.TestCase):
         self.write("desktop/upstream.json", json.dumps({"upstream_revision": "f" * 40}))
         with self.assertRaisesRegex(ValueError, "完整提交"):
             automation.guard(self.root, self.base, "desktop")
+
+    def test_command_logs_work_in_a_non_utf8_runner(self):
+        environment = {**os.environ, "PYTHONUTF8": "0", "PYTHONIOENCODING": "cp1252"}
+        script = str(Path(automation.__file__).resolve())
+        result = subprocess.run([sys.executable, script, "guard", "--base", self.base, "--branch", "desktop"],
+                                cwd=self.root, env=environment, capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
+        self.assertIn("检查通过", result.stdout.decode("utf-8"))
 
     def test_online_sync_pushes_a_draft_and_dispatches_preserved_workflows(self):
         revision = self.upstream({"videodl/parser.py": "new parser\n"})
