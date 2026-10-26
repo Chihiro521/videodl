@@ -23,7 +23,11 @@ def schedule_capture(window, report_path):
         timer.stop()
         save_json(path, {"visible": window.isVisible(), "width": window.width(), "height": window.height(),
             "error": error, "failures": list(window.extraction_failures.values()),
-            "results": [{key: row.get(key) for key in ("kind", "status", "title", "formats", "format_id")} for row in window.catalog.rows],
+            "results": [{key: row.get(key) for key in ("id", "url", "source_order", "kind", "status", "title", "formats", "format_id")} for row in window.catalog.rows],
+            "groups": [{"url": url, "source_order": window.catalog.sources[url],
+                        "row": window.source_row_map.get(url), "state": window.source_states.get(url, "done"),
+                        "span": window.results_table.columnSpan(window.source_row_map[url], 0)}
+                       for url in window.source_row_map],
             "jobs": [{key: job.get(key) for key in ("status", "options", "files", "cache_hit", "parse_seconds")} for job in window.jobs]})
         window.grab().save(str(path.with_suffix(".png")))
         window.close()
@@ -56,6 +60,6 @@ def schedule_capture(window, report_path):
         window.destination.setText(command["output"])
         window.common.setChecked(command.get("common", False))
         window.auto_download.setChecked(False)
-        window.links.setPlainText(command["url"])
+        window.links.setPlainText(command.get("text", command.get("url", "")))
         window.start_preview()
     timer.start()

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QToolButton
 
 from desktop.app import Window
 from desktop.storage import load_json
-from desktop.tests.test_results import summary
+from desktop.tests.test_results import media_cell, summary
 from desktop.theme import DARK, LIGHT
 
 
@@ -73,29 +73,29 @@ def test_home_results_no_match_failures_and_clear(window, monkeypatch):
 
 def test_controls_scroll_and_latest_metadata_survive_repeated_refresh(window):
     add_rows(window, 40)
-    first_check = window.results_table.cellWidget(0, 0).findChild(QCheckBox)
+    first_check = media_cell(window, 0).findChild(QCheckBox)
     assert first_check.visibleRegion().boundingRect().width() == first_check.width()
     bar = window.results_table.verticalScrollBar()
     bar.setValue(180)
-    check = window.results_table.cellWidget(0, 0).findChild(QCheckBox)
-    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox)
+    check = media_cell(window, 0).findChild(QCheckBox)
+    combo = media_cell(window, 2).findChild(QComboBox)
     combo.setFocus()
     for _ in range(10):
         window.render_results()
         window.refresh_result_status()
-    assert window.results_table.cellWidget(0, 2).findChild(QComboBox) is combo
-    assert window.results_table.cellWidget(0, 0).findChild(QCheckBox) is check
+    assert media_cell(window, 2).findChild(QComboBox) is combo
+    assert media_cell(window, 0).findChild(QCheckBox) is check
     assert bar.value() == 180 and combo.hasFocus()
     old = window.catalog.rows[0]
     new = window.catalog.replace_summary(old["url"], [{**summary(index=7, key=old["item_key"]), "formats": old["formats"]}])[0]
     assert new is not old
     window.render_results()
-    assert window.results_table.cellWidget(0, 2).findChild(QComboBox) is combo
+    assert media_cell(window, 2).findChild(QComboBox) is combo
     combo.setCurrentIndex(1)
     check.setChecked(True)
     assert new["format_id"] == "720" and new["checked"]
     assert old["format_id"] == "1080" and not old["checked"]
-    menus = [control.menu() for control in window.results_table.cellWidget(0, 4).findChildren(QToolButton) if control.menu()]
+    menus = [control.menu() for control in media_cell(window, 4).findChildren(QToolButton) if control.menu()]
     versions = menus[0].actions()[0].menu()
     choices = [choice for group in versions.actions() for choice in group.menu().actions()]
     assert [choice.data() for choice in choices if choice.isChecked()] == ["720"]
@@ -113,7 +113,7 @@ def test_progress_is_coalesced_and_terminal_state_is_immediate(window, monkeypat
     window.catalog.sync_job(job)
     window.render_queue()
     window.refresh_result_status()
-    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox)
+    combo = media_cell(window, 2).findChild(QComboBox)
     progress = window.table.cellWidget(0, 3)
     updates = []
     refresh = window.refresh_result_status
@@ -124,17 +124,17 @@ def test_progress_is_coalesced_and_terminal_state_is_immediate(window, monkeypat
     drain(95)
     assert updates == [job["id"]]
     assert progress.value() == 59
-    assert window.results_table.cellWidget(0, 2).findChild(QComboBox) is combo
+    assert media_cell(window, 2).findChild(QComboBox) is combo
     assert window.table.cellWidget(0, 3) is progress
     window.job_event(job, {"event": "progress", "percent": 90})
     window.job_event(job, {"event": "result", "status": "done", "files": [{"path": "D:/file.mp4", "kind": "video", "item_key": "0", "format_id": "1080"}]})
-    assert window.results_table.item(0, 3).text() == "已完成"
+    assert window.results_table.item(window.result_row_map[window.catalog.rows[0]["id"]], 3).text() == "已完成"
     assert job["id"] not in window.pending_progress
 
 
 def test_wheel_passes_quality_and_theme_preserves_choices(window):
     add_rows(window, 20)
-    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox)
+    combo = media_cell(window, 2).findChild(QComboBox)
     combo.setFocus()
     event = QWheelEvent(QPointF(8, 8), QPointF(8, 8), QPoint(), QPoint(0, -120),
                         Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
@@ -148,10 +148,10 @@ def test_wheel_passes_quality_and_theme_preserves_choices(window):
         assert QApplication.instance().desktop_colors == palette
         assert window.catalog.rows[0]["format_id"] == "720"
         assert all(row["checked"] for row in window.catalog.rows)
-        assert window.results_table.cellWidget(0, 2).findChild(QComboBox).currentData() == "720"
+        assert media_cell(window, 2).findChild(QComboBox).currentData() == "720"
     assert load_json(window.store / "settings.json", {})["theme"] == "dark"
     restored = Window()
     assert restored.settings["theme"] == "dark"
     assert not restored.home_intro.isVisible()
-    assert restored.results_table.cellWidget(0, 2).findChild(QComboBox).currentData() == "720"
+    assert media_cell(restored, 2).findChild(QComboBox).currentData() == "720"
     restored.close()

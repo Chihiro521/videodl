@@ -37,13 +37,15 @@ def save_json(path: Path, value):
 def parse_links(text: str) -> list[str]:
     """Accept multi-line links and the surrounding text of share messages."""
     links = []
+    seen = set()
     for candidate in re.findall(r"https?://[^\s<>\"“”]+", text):
         url = candidate.rstrip("。；，、！）)]}.,;!'")
         try:
             parts = urlsplit(url)
             _ = parts.port
-            if parts.hostname and not parts.username and not parts.password and url not in links:
+            if parts.hostname and not parts.username and not parts.password and url not in seen:
                 links.append(url)
+                seen.add(url)
         except ValueError:
             continue
     return links

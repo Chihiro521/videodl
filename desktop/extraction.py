@@ -15,6 +15,7 @@ class ExtractionController:
     def begin_extraction(self, urls, replace=True):
         if self.extraction_active:
             return
+        urls = list(dict.fromkeys(urls))
         output = self.output_directory()
         if not urls or not output:
             self.say("请先粘贴有效链接，并选择保存文件夹。")
@@ -28,7 +29,8 @@ class ExtractionController:
             return
         if replace:
             self.batch_started = True
-            self.catalog.rows.clear()
+            self.catalog.clear()
+            self.source_states.clear()
             self.jobs = [job for job in self.jobs if job["id"] in self.running]
             self.extraction_failures.clear()
             self.result_search.clear()
@@ -37,10 +39,9 @@ class ExtractionController:
             self.queue_filter.setCurrentIndex(0)
             self.retry_extract_button.hide()
             self.extract_errors_button.hide()
-            self.render_results()
             self.render_queue()
-            self.persist()
             self.say("正在提取新一批链接…")
+        self.catalog.register_sources(urls)
         self.extraction_waiting = list(urls)
         self.extraction_output = output
         self.extraction_total = len(urls)
@@ -49,12 +50,13 @@ class ExtractionController:
         self.extraction_succeeded.clear()
         for url in urls:
             self.extraction_failures.pop(url, None)
+            self.source_states[url] = "waiting"
         self.parse_button.setEnabled(False)
         self.stop_extract.show()
         self.extract_progress.setRange(0, 0)
         self.extract_progress.show()
-        self.update_workbench_layout()
-        self.update_empty_state()
+        self.persist()
+        self.render_results()
         self.pump_extraction()
 
     def pump_extraction(self):
@@ -65,14 +67,21 @@ class ExtractionController:
             worker = Worker({"action": "parse", "url": url, "output": self.extraction_output,
                              "common": self.common.isChecked()}, self)
             self.extraction_active[url] = worker
+            self.source_states[url] = "active"
             worker.event.connect(lambda event, current=url: self.extraction_event(current, event))
             worker.finished.connect(lambda code, current=url: self.extraction_finished(current, code))
             worker.start()
         self.parse_button.setText(f"提取中 {self.extraction_completed}/{self.extraction_total}")
+        self.render_results()
 
     def extraction_event(self, url, event):
         if event["event"] == "result":
+            if not event.get("items"):
+                self.extraction_event(url, {"event": "error", "message": "未找到可下载内容，请检查链接后重试。"})
+                return
             self.extraction_succeeded.add(url)
+            self.source_states[url] = "done"
+            self.extraction_failures.pop(url, None)
             fresh = self.catalog.replace_summary(url, event.get("items", []))
             self.persist()
             self.render_results()
@@ -80,11 +89,19 @@ class ExtractionController:
                 self.download_results([row for row in fresh if self.options[row["kind"]].isChecked()])
         elif event["event"] == "error":
             self.extraction_failures[url] = event["message"]
+            self.source_states[url] = "failed"
+            self.render_results()
 
     def extraction_finished(self, url, code):
         worker = self.extraction_active.pop(url, None)
         if worker and not worker.cancelled and url not in self.extraction_succeeded and url not in self.extraction_failures:
             self.extraction_failures[url] = "该链接未完成提取，请稍后重试。"
+        if url in self.extraction_succeeded:
+            self.source_states[url] = "done"
+        elif worker and worker.cancelled:
+            self.source_states[url] = "cancelled"
+        elif url in self.extraction_failures:
+            self.source_states[url] = "failed"
         if worker:
             worker.deleteLater()
         self.extraction_completed += 1
@@ -111,14 +128,39 @@ class ExtractionController:
 
     def cancel_extraction(self):
         self.extraction_cancelled = True
+        for url in self.extraction_waiting:
+            self.source_states[url] = "cancelled"
         self.extraction_waiting.clear()
         for worker in list(self.extraction_active.values()):
             worker.cancel()
         self.say("正在停止提取，已取得的结果会保留。")
+        self.render_results()
 
     def retry_extraction(self):
-        if not self.extraction_active and self.extraction_failures:
-            self.begin_extraction(list(self.extraction_failures), replace=False)
+        self.retry_sources(list(self.extraction_failures))
+
+    def retry_source(self, url):
+        if url in self.extraction_failures or self.source_states.get(url) == "cancelled":
+            self.retry_sources([url])
+
+    def retry_sources(self, urls):
+        urls = [url for url in dict.fromkeys(urls)
+                if url not in self.extraction_active and url not in self.extraction_waiting]
+        if not urls:
+            return
+        if not self.extraction_active and not self.extraction_waiting:
+            self.begin_extraction(urls, replace=False)
+            return
+        # A failed group can rejoin the same batch while other sources continue.
+        for url in urls:
+            self.extraction_failures.pop(url, None)
+            self.extraction_succeeded.discard(url)
+            self.source_states[url] = "waiting"
+        self.catalog.register_sources(urls)
+        self.extraction_waiting.extend(urls)
+        self.extraction_total += len(urls)
+        self.extraction_cancelled = False
+        self.pump_extraction()
 
     def show_extraction_errors(self):
         box = QMessageBox(self)

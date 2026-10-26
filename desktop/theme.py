@@ -157,6 +157,8 @@ QFrame#linkBox { background: @bg@; border: 1px solid @border@; border-radius: 9p
 QFrame#destinationBar { background: @bg@; border-top: 1px solid @line@; }
 QFrame#card { background: @bg@; border: 1px solid @line@; border-radius: 8px; }
 QFrame#segmented { background: @surface@; border: none; border-radius: 8px; }
+QFrame#sourceGroup { background: @surface@; border: none; border-top: 1px solid @line@; border-bottom: 1px solid @line@; }
+QLabel#sourceNumber { color: @muted@; font-size: 15px; font-weight: 600; }
 QLabel { background: transparent; border: none; }
 QLabel#muted { color: @muted@; font-size: 12px; }
 QLabel#title { font-size: 22px; font-weight: 600; }

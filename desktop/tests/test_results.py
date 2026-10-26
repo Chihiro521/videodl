@@ -11,6 +11,11 @@ from desktop.results import ResultCatalog
 from desktop.storage import load_json
 
 
+def media_cell(window, column, row=None):
+    row = window.catalog.rows[0] if row is None else row
+    return window.results_table.cellWidget(window.result_row_map[row["id"]], column)
+
+
 def summary(index=0, key="a" * 64, title="示例标题"):
     return {"index": index, "item_key": key, "title": title, "source": "ExampleVideoClient", "ext": "mp4",
             "audio_ext": "m4a", "has_cover": True, "separate_audio": False, "media_kind": "video"}
@@ -72,7 +77,8 @@ def test_batch_extract_filter_select_download_and_restore(application, tmp_path,
     assert len(window.catalog.rows) == 3
     assert len(window.jobs) == 0, "manual extraction must not start downloads"
     window.type_filter.setCurrentIndex(window.type_filter.findData("video"))
-    assert window.results_table.rowCount() == 1
+    assert len(window.result_row_map) == 1
+    assert window.results_table.rowCount() == 2
     window.select_visible(True)
     window.download_selected()
     spin(application, lambda: bool(window.running))
@@ -143,16 +149,16 @@ def test_inline_quality_survives_filter_and_changes_download_plan(application, t
     formats = [{"id": "high", "label": "1080p-MP4"}, {"id": "low", "label": "720p-MP4"}]
     rows = window.catalog.replace_summary("https://example.test/a", [{**summary(), "formats": formats, "identity_version": 2}])
     window.render_results()
-    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice")
+    combo = media_cell(window, 2).findChild(QComboBox, "qualityChoice")
     assert combo.currentData() == "high"
     combo.setCurrentIndex(1)
     window.type_filter.setCurrentIndex(window.type_filter.findData("audio"))
     window.type_filter.setCurrentIndex(window.type_filter.findData("video"))
-    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice")
+    combo = media_cell(window, 2).findChild(QComboBox, "qualityChoice")
     assert combo.currentData() == "low"
     window.download_results([rows[0]])
     assert window.jobs[0]["format_ids"] == {"a" * 64: "low"}
-    assert not window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice").isEnabled()
+    assert not media_cell(window, 2).findChild(QComboBox, "qualityChoice").isEnabled()
     window.close()
 
 
@@ -231,14 +237,14 @@ def test_compact_menu_advanced_choice_and_mixed_batch(application, tmp_path, mon
     b = window.catalog.replace_summary("https://example.test/b", [{**summary(key="b"*64), "formats": formats}])[0]
     window.type_filter.setCurrentIndex(window.type_filter.findData("video"))
     window.render_results()
-    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice")
+    combo = media_cell(window, 2).findChild(QComboBox, "qualityChoice")
     assert combo.count() == 2 and combo.itemText(0) == "1080p-MP4"
-    menus = [button.menu() for button in window.results_table.cellWidget(0, 4).findChildren(QToolButton) if button.menu()]
+    menus = [button.menu() for button in media_cell(window, 4).findChildren(QToolButton) if button.menu()]
     versions = menus[0].actions()[0].menu()
     options = [a for group in versions.actions() for a in group.menu().actions()]
     assert len(options) == 4
     window.choose_other_format(a, "1080-av01")
-    combo = window.results_table.cellWidget(0, 2).findChild(QComboBox, "qualityChoice")
+    combo = media_cell(window, 2).findChild(QComboBox, "qualityChoice")
     assert combo.count() == 2 and combo.currentData() == "1080-av01"
     window.set_result_format(b, "720-avc1")
     window.download_results([a, b])
