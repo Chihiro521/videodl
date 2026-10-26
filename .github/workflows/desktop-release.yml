@@ -28,7 +28,6 @@ jobs:
     timeout-minutes: 35
     outputs:
       tag: ${{ steps.target.outputs.tag }}
-      revision: ${{ steps.target.outputs.revision }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -79,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ needs.windows.outputs.revision }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -91,5 +90,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_DIR: release-artifact
           RELEASE_TAG: ${{ needs.windows.outputs.tag }}
-          RELEASE_REVISION: ${{ needs.windows.outputs.revision }}
+          RELEASE_REVISION: ${{ github.sha }}
         run: python scripts/desktop_release.py

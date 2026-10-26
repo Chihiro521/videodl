@@ -178,6 +178,7 @@ class AutomationTests(unittest.TestCase):
                 automation.release_target(self.root, "", "refs/heads/desktop")
 
     def test_publisher_rejects_tampered_artifact_and_wrong_revision(self):
+        self.git("update-ref", "refs/remotes/origin/desktop", self.base)
         artifact = self.root / "artifact"
         artifact.mkdir()
         package = artifact / "VideoDL-Desktop-0.4.0-windows-x64.zip"

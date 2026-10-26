@@ -17,6 +17,8 @@ def verify(root, artifact, tag, revision):
         raise ValueError("发行版本与源码不一致。")
     if git(root, "rev-parse", "HEAD").stdout.strip() != revision:
         raise ValueError("发行任务没有检出预期提交。")
+    if git(root, "merge-base", "--is-ancestor", revision, "origin/desktop", check=False).returncode:
+        raise ValueError("发行任务的提交尚未合入 desktop。")
     metadata = json.loads((artifact / "build-info.json").read_text(encoding="utf-8"))
     if metadata.get("desktop_revision") != revision or metadata.get("desktop_version") != version:
         raise ValueError("构建信息与发行提交不一致。")
