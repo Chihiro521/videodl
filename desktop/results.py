@@ -11,6 +11,7 @@ KINDS = {"video": "视频", "audio": "音频", "cover": "封面"}
 class ResultCatalog:
     def __init__(self, rows=None):
         self.rows = []
+        self.sources = {}
         for row in rows if isinstance(rows, list) else []:
             if not isinstance(row, dict) or row.get("kind") not in KINDS:
                 continue
@@ -19,8 +20,32 @@ class ResultCatalog:
             if not isinstance(row["index"], int) or row["index"] < 0:
                 continue
             self.rows.append({"formats": [], "format_id": "", "identity_version": 1, **row, "checked": False})
+        for row in self.rows:
+            order = row.get("source_order")
+            if not isinstance(order, int) or isinstance(order, bool) or order < 0:
+                order = len(self.sources)
+            self.sources.setdefault(row["url"], order)
+        self.rows.sort(key=lambda row: self.sources[row["url"]])
+        for row in self.rows:
+            row["source_order"] = self.sources[row["url"]]
+
+    def register_sources(self, urls):
+        """Reserve group positions before concurrent parsers return any media."""
+        order = max(self.sources.values(), default=-1) + 1
+        for url in urls:
+            if url not in self.sources:
+                self.sources[url] = order
+                order += 1
+
+    def source_urls(self):
+        return sorted(self.sources, key=self.sources.get)
+
+    def clear(self):
+        self.rows.clear()
+        self.sources.clear()
 
     def replace_summary(self, url, items):
+        self.register_sources([url])
         old = {row["id"]: row for row in self.rows if row["url"] == url}
         by_key = {(row.get("item_key"), row["kind"]): row for row in old.values()}
         fresh = []
@@ -38,7 +63,7 @@ class ResultCatalog:
                 chosen = previous.get("format_id", "")
                 if not any(f["id"] == chosen for f in formats):
                     chosen = recommended_formats(formats)[0]["id"] if formats else ""
-                fresh.append({"id": row_id, "url": url, "index": index, "item_key": item.get("item_key", ""),
+                fresh.append({"id": row_id, "url": url, "source_order": self.sources[url], "index": index, "item_key": item.get("item_key", ""),
                     "identity_version": item.get("identity_version", 2), "formats": formats, "format_id": chosen,
                     "title": item.get("title") or "未命名媒体", "source": item.get("source", ""),
                     "kind": kind, "ext": item.get("ext", ""), "audio_ext": item.get("audio_ext", ""),
@@ -50,6 +75,7 @@ class ResultCatalog:
         insertion = positions[0] if positions else len(self.rows)
         self.rows = [row for row in self.rows if row["url"] != url]
         self.rows[insertion:insertion] = fresh
+        self.rows.sort(key=lambda row: self.sources[row["url"]])
         return fresh
 
     def visible(self, kind="", query=""):

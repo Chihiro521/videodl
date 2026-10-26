@@ -49,6 +49,7 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
         self.extraction_active = {}
         self.extraction_waiting = []
         self.extraction_failures = {}
+        self.source_states = {}
         self.extraction_succeeded = set()
         self.extraction_total = 0
         self.extraction_completed = 0
@@ -63,6 +64,9 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
         self.result_signatures = {}
         self.result_status_signatures = {}
         self.result_lookup = {}
+        self.result_table_keys = []
+        self.source_headers = {}
+        self.source_row_map = {}
         self.queue_signatures = {}
         self.pending_progress = {}
         self.progress_timer = QTimer(self)
@@ -127,7 +131,10 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
 
     def update_link_count(self):
         count = len(parse_links(self.links.toPlainText()))
-        self.link_count.setText(f"已识别 {count} 个链接 · Ctrl+Enter 提取" if count else "支持 Bilibili、抖音、YouTube 等链接")
+        text = f"已识别 {count} 个链接 · Ctrl+Enter 提取" if count else "支持单行、多行链接或分享文本 · 最多 200 条"
+        if count > 200:
+            text = f"已识别 {count} 个链接 · 单次最多 200 条，请分批提取"
+        self.link_count.setText(text)
         self.link_count.setToolTip(self.link_count.text())
 
     def update_workbench_layout(self):

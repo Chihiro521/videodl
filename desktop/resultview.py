@@ -1,6 +1,7 @@
 """Selection, filtering, row actions, and live download state in the result table."""
 
 from pathlib import Path
+from collections import defaultdict
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
@@ -8,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QHBoxLayout, Q
 
 from .downloads import STATES
 from .results import KINDS
+from .sourcegroups import SourceHeader
 from .storage import public_host
 from .theme import colors, icon, set_symbol
 from .quality import choice_label, detail_label, recommended_formats, resolution
@@ -17,6 +19,47 @@ from .widgets import QualityComboBox, tool_button
 class ResultView:
     def visible_results(self):
         return self.catalog.visible(self.type_filter.currentData() or "", self.result_search.text())
+
+    def visible_source_groups(self, rows=None):
+        by_source = defaultdict(list)
+        for row in self.visible_results() if rows is None else rows:
+            by_source[row["url"]].append(row)
+        filtered = bool(self.type_filter.currentData() or self.result_search.text().strip())
+        return [(url, by_source[url]) for url in self.catalog.source_urls() if by_source[url] or not filtered]
+
+    def sync_result_structure(self, keys):
+        """Insert new media beneath its reserved header without rebuilding other rows."""
+        current = self.result_table_keys
+        desired = set(keys)
+        changed = keys != current
+
+        def remove(position):
+            kind, key = current.pop(position)
+            self.results_table.removeRow(position)
+            if kind == "media":
+                self.result_signatures.pop(key, None)
+                self.result_status_signatures.pop(key, None)
+            else:
+                self.source_headers.pop(key, None)
+
+        if changed:
+            self.results_table.clearSpans()
+            for position in range(len(current) - 1, -1, -1):
+                if current[position] not in desired:
+                    remove(position)
+            for position, key in enumerate(keys):
+                if position < len(current) and current[position] == key:
+                    continue
+                if key in current:
+                    remove(current.index(key))
+                self.results_table.insertRow(position)
+                current.insert(position, key)
+        self.result_row_map = {key: i for i, (kind, key) in enumerate(current) if kind == "media"}
+        self.source_row_map = {key: i for i, (kind, key) in enumerate(current) if kind == "source"}
+        if changed:
+            for position in self.source_row_map.values():
+                self.results_table.setSpan(position, 0, 1, self.results_table.columnCount())
+                self.results_table.setRowHeight(position, 66)
 
     def render_results(self, *_):
         self.result_search_timer.stop()
@@ -31,23 +74,50 @@ class ResultView:
 
     def _render_results(self):
         rows = self.visible_results()
+        groups = self.visible_source_groups(rows)
         self.result_lookup = {row["id"]: row for row in self.catalog.rows}
-        identifiers = [row["id"] for row in rows]
-        previous = list(self.result_row_map)
-        if identifiers[:len(previous)] != previous:
-            self.results_table.setRowCount(0)
-            self.result_signatures.clear()
-            self.result_status_signatures.clear()
-        self.result_row_map = {}
-        self.results_table.setRowCount(len(rows))
-        for number, row in enumerate(rows):
-            self.result_row_map[row["id"]] = number
-            signature = (row["title"], row["kind"], row["url"], row.get("ext"), row.get("format_id"), repr(row.get("formats")))
+        keys = []
+        for url, members in groups:
+            keys.append(("source", url))
+            keys.extend(("media", row["id"]) for row in members)
+        self.sync_result_structure(keys)
+        all_by_source = defaultdict(list)
+        for row in self.catalog.rows:
+            all_by_source[row["url"]].append(row)
+        for url, members in groups:
+            position = self.source_row_map[url]
+            header = self.source_headers.get(url)
+            if header is None:
+                header = SourceHeader(self, url)
+                self.source_headers[url] = header
+                self.results_table.setCellWidget(position, 0, header)
+            state = self.source_states.get(url, "done")
+            if url in self.extraction_failures:
+                state = "failed"
+            total = all_by_source[url]
+            contents = len({row.get("item_key") or row["index"] for row in total})
+            text = f"{contents} 个内容 · {len(total)} 项"
+            if len(members) != len(total):
+                text += f" · 显示 {len(members)} 项"
+            status = {"waiting": "等待提取", "active": "提取中…", "failed": "提取失败", "cancelled": "已停止"}.get(state)
+            if status:
+                text = status + (" · " + text if total else "")
+            elif not total:
+                text = "暂无可下载内容"
+            header.update_summary(self.catalog.sources[url] + 1, text, state, self.extraction_failures.get(url, ""))
+            header.retry.setEnabled(url not in self.extraction_active and url not in self.extraction_waiting)
+        for row in rows:
+            number = self.result_row_map[row["id"]]
+            signature = (row["title"], row["kind"], row["url"], row.get("ext"), repr(row.get("formats")))
             if self.result_signatures.get(row["id"]) == signature:
                 check = self.results_table.cellWidget(number, 0).findChild(QCheckBox)
                 check.blockSignals(True)
                 check.setChecked(bool(row.get("checked")))
                 check.blockSignals(False)
+                if row["kind"] == "video":
+                    combo = self.results_table.cellWidget(number, 2).findChild(QComboBox, "qualityChoice")
+                    if combo.currentData() != row.get("format_id", ""):
+                        self.fill_result_quality(combo, row)
                 continue
             self.result_signatures[row["id"]] = signature
             self.result_status_signatures.pop(row["id"], None)
@@ -74,18 +144,9 @@ class ResultView:
                 combo = QualityComboBox()
                 combo.setObjectName("qualityChoice")
                 combo.setAccessibleName(f"下载画质：{row['title']}")
-                raw_formats = row.get("formats") or [{"id": "", "label": "来源画质-" + (row.get("ext") or "mp4").upper(), "ext": row.get("ext") or "mp4"}]
-                formats = recommended_formats(raw_formats)
-                selected = next((f for f in raw_formats if f["id"] == row.get("format_id")), None)
-                if selected:
-                    formats = [selected if resolution(f) == resolution(selected) else f for f in formats]
-                for entry in formats:
-                    combo.addItem(icon("video", colors()["muted"], 18), choice_label(entry), entry["id"])
-                    combo.setItemData(combo.count() - 1, detail_label(entry), Qt.ItemDataRole.ToolTipRole)
-                combo.setCurrentIndex(max(0, combo.findData(row.get("format_id", ""))))
+                self.fill_result_quality(combo, row)
                 combo.setEnabled(self.row_state(row)[0] not in ("waiting", "active"))
                 combo.setMaxVisibleItems(10)
-                combo.setToolTip("每档展示推荐版本；其他编码可在右侧更多菜单中选择" if len(raw_formats) > len(formats) else "选择本条视频的下载画质")
                 combo.currentIndexChanged.connect(lambda _, key=row["id"], control=combo: self.result_command(key, "set_result_format", control.currentData()))
                 wrapper = QWidget()
                 layout = QHBoxLayout(wrapper)
@@ -109,12 +170,12 @@ class ResultView:
             if row["kind"] == "video" and len(row.get("formats", [])) > 1:
                 versions = menu.addMenu("其他编码 / 格式")
                 versions.setEnabled(self.row_state(row)[0] not in ("waiting", "active"))
-                groups = {}
+                versions_by_resolution = {}
                 for entry in row["formats"]:
                     key = resolution(entry)
-                    if key not in groups:
-                        groups[key] = versions.addMenu(f"{key}p" if key else "来源画质")
-                    option = groups[key].addAction(detail_label(entry))
+                    if key not in versions_by_resolution:
+                        versions_by_resolution[key] = versions.addMenu(f"{key}p" if key else "来源画质")
+                    option = versions_by_resolution[key].addAction(detail_label(entry))
                     option.setData(entry["id"])
                     option.setCheckable(True)
                     option.setChecked(entry["id"] == row.get("format_id"))
@@ -129,15 +190,33 @@ class ResultView:
             more.setMenu(menu)
             actions_box.addWidget(more)
             self.results_table.setCellWidget(number, 4, actions)
-        self.result_stack.setCurrentIndex(1 if rows else 0)
+        self.result_stack.setCurrentIndex(1 if groups else 0)
         self.update_empty_state()
         counts = {kind: sum(row["kind"] == kind for row in self.catalog.rows) for kind in KINDS}
         detail = " · ".join(f"{count} 项{KINDS[kind]}" for kind, count in counts.items() if count)
         prefix = f"显示 {len(rows)} / 共 {len(self.catalog.rows)} 项" if self.type_filter.currentData() or self.result_search.text() else f"共 {len(self.catalog.rows)} 项"
-        self.result_summary.setText(f"{prefix}（{detail}）" if detail else "暂无提取结果")
-        self.result_summary.setToolTip(self.result_summary.text())
+        self.result_summary.setText(f"{len(self.catalog.sources)} 个链接 · {prefix}" if self.catalog.sources else "暂无提取结果")
+        self.result_summary.setToolTip(self.result_summary.text() + (f"（{detail}）" if detail else ""))
+        self.retry_extract_button.setVisible(bool(self.extraction_failures))
+        self.retry_extract_button.setText(f"重试失败链接（{len(self.extraction_failures)}）")
+        self.extract_errors_button.setVisible(bool(self.extraction_failures))
         self.update_workbench_layout()
         self.refresh_result_status()
+
+    def fill_result_quality(self, combo, row):
+        raw_formats = row.get("formats") or [{"id": "", "label": "来源画质-" + (row.get("ext") or "mp4").upper(), "ext": row.get("ext") or "mp4"}]
+        formats = recommended_formats(raw_formats)
+        selected = next((f for f in raw_formats if f["id"] == row.get("format_id")), None)
+        if selected:
+            formats = [selected if resolution(f) == resolution(selected) else f for f in formats]
+        combo.blockSignals(True)
+        combo.clear()
+        for entry in formats:
+            combo.addItem(icon("video", colors()["muted"], 18), choice_label(entry), entry["id"])
+            combo.setItemData(combo.count() - 1, detail_label(entry), Qt.ItemDataRole.ToolTipRole)
+        combo.setCurrentIndex(max(0, combo.findData(row.get("format_id", ""))))
+        combo.blockSignals(False)
+        combo.setToolTip("每档展示推荐版本；其他编码可在右侧更多菜单中选择" if len(raw_formats) > len(formats) else "选择本条视频的下载画质")
 
     def result_command(self, row_id, operation, *args):
         row = self.result_lookup.get(row_id)
@@ -179,9 +258,23 @@ class ResultView:
         available = [row for row in rows if self.row_state(row, jobs)[0] not in ("done", "waiting", "active")]
         self.download_selected_button.setEnabled(any(row.get("checked") for row in available))
         self.download_all_button.setEnabled(bool(available))
+        available_ids = {row["id"] for row in available}
+        for url, members in self.visible_source_groups(rows):
+            header = self.source_headers.get(url)
+            if header:
+                header.update_selection(members, any(row["id"] in available_ids for row in members))
 
     def select_visible(self, checked):
-        for row in self.visible_results():
+        self.select_results(self.visible_results(), checked)
+
+    def select_source(self, url, checked):
+        self.select_results([row for row in self.visible_results() if row["url"] == url], checked)
+
+    def download_source(self, url):
+        self.download_results([row for row in self.visible_results() if row["url"] == url])
+
+    def select_results(self, rows, checked):
+        for row in rows:
             row["checked"] = checked
             position = self.result_row_map.get(row["id"])
             if position is not None:
@@ -292,7 +385,8 @@ class ResultView:
         if self.extraction_active:
             self.say("请先停止提取，再清空列表。")
             return
-        self.catalog.rows.clear()
+        self.catalog.clear()
+        self.source_states.clear()
         self.batch_started = False
         self.extraction_failures.clear()
         self.extraction_cancelled = False

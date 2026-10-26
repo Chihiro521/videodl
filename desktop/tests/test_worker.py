@@ -87,6 +87,37 @@ def test_frozen_gui_extracts_selects_and_downloads(tmp_path, media_server):
     assert report["jobs"][0]["cache_hit"]
 
 
+def test_gui_groups_multiple_links_and_saves_flat_outputs(tmp_path, media_server):
+    from pathlib import Path
+    server, _ = media_server
+    urls = [server + "/sample.mp4?source=first", server + "/sample.mp4?source=second"]
+    command = tmp_path / "batch-input.json"
+    output = tmp_path / "多链接下载"
+    save_json(command, {"text": f"第一条 {urls[0]}\n第二条 {urls[1]}\n重复 {urls[0]}", "output": str(output), "kind": "all"})
+    environment = os.environ.copy()
+    frozen = os.environ.get("VIDEODL_TEST_EXE")
+    executable = [frozen] if frozen else [sys.executable, "-m", "desktop"]
+    if frozen:
+        environment["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
+        environment.pop("PYTHONPATH", None)
+        environment.pop("PYTHONHOME", None)
+    environment.update(QT_QPA_PLATFORM="offscreen", VIDEODL_DESKTOP_DATA=str(tmp_path / "appdata"),
+        VIDEODL_GUI_SMOKE_REPORT=str(tmp_path / "batch-report.json"), VIDEODL_GUI_SMOKE_INPUT=str(command))
+    result = subprocess.run(executable, capture_output=True, env=environment, timeout=130)
+    assert result.returncode == 0
+    report = json.loads((tmp_path / "batch-report.json").read_text(encoding="utf-8"))
+    assert not report["error"] and not report["failures"], report
+    assert [group["url"] for group in report["groups"]] == urls
+    assert [group["row"] for group in report["groups"]] == [0, 3]
+    assert all(group["span"] == 5 for group in report["groups"])
+    assert [row["source_order"] for row in report["results"]] == [0, 0, 1, 1]
+    assert len(report["jobs"]) == 2 and all(job["status"] == "done" for job in report["jobs"])
+    files = [Path(f["path"]) for job in report["jobs"] for f in job["files"]]
+    assert len(files) == len(set(files)) == 4
+    assert all(path.is_file() and path.parent == output for path in files)
+    assert not any(path.is_dir() for path in output.iterdir())
+
+
 @pytest.mark.skipif(not os.environ.get("VIDEODL_TEST_EXE"), reason="requires packaged executable")
 @pytest.mark.parametrize("manifest", ["master.m3u8", "manifest.mpd"])
 def test_frozen_gui_downloads_chosen_quality(tmp_path, variant_server, manifest):
