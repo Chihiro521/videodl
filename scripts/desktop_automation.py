@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 REPOSITORY = "Chihiro521/videodl"
@@ -74,11 +75,11 @@ def merge_upstream(root, revision):
         raise ValueError("无法建立上游合并，请检查 Git 历史。")
     # Keep the desktop automation, dependency lock and entrypoint exactly as
     # reviewed on the target branch, even when upstream modifies them.
-    existing = set(git(root, "ls-tree", "-r", "--name-only", base).stdout.splitlines())
-    present = existing | set(git(root, "ls-files").stdout.splitlines())
+    existing = set(git(root, "ls-tree", "-r", "-z", "--name-only", base).stdout.split("\0"))
+    present = existing | set(git(root, "ls-files", "-z").stdout.split("\0"))
     restore = [p for p in OWNED + GENERATED if any(f == p or f.startswith(p + "/") for f in present)]
     git(root, "restore", "--source=" + base, "--staged", "--worktree", "--", *restore)
-    conflicts = [p for p in git(root, "diff", "--name-only", "--diff-filter=U").stdout.splitlines() if p]
+    conflicts = [p for p in git(root, "diff", "-z", "--name-only", "--diff-filter=U").stdout.split("\0") if p]
     if conflicts:
         return pending(root, revision, conflicts)
     try:
@@ -188,6 +189,9 @@ def release_target(root, requested, ref):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("sync", "guard", "release-target"))
     parser.add_argument("--base", default="origin/desktop")
