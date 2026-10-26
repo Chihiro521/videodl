@@ -19,7 +19,7 @@ def verify(root, artifact, tag, revision):
         raise ValueError("发行任务没有检出预期提交。")
     if git(root, "merge-base", "--is-ancestor", revision, "origin/desktop", check=False).returncode:
         raise ValueError("发行任务的提交尚未合入 desktop。")
-    metadata = json.loads((artifact / "build-info.json").read_text(encoding="utf-8"))
+    metadata = json.loads((artifact / "VideoDL Desktop/build-info.json").read_text(encoding="utf-8"))
     if metadata.get("desktop_revision") != revision or metadata.get("desktop_version") != version:
         raise ValueError("构建信息与发行提交不一致。")
     filename = f"VideoDL-Desktop-{version}-windows-x64.zip"
@@ -48,7 +48,7 @@ def publish(root, artifact, tag, revision):
     # A bot-created tag does not need a recursive push-triggered workflow: the
     # current workflow has already built and tested this exact commit.
     result = run(root, "gh", "release", "create", tag, str(archive), str(artifact / "SHA256SUMS.txt"),
-                 str(artifact / "build-info.json"), "--repo", REPOSITORY, "--verify-tag", "--target", revision,
+                 str(artifact / "VideoDL Desktop/build-info.json"), "--repo", REPOSITORY, "--verify-tag", "--target", revision,
                  "--draft", "--title", "VideoDL Desktop v" + tag.removeprefix("desktop-v"),
                  "--notes-file", str(root / "desktop/RELEASE_NOTES.md"))
     print(result.stdout.strip())

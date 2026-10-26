@@ -17,6 +17,9 @@ class AutomationTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="videodl-automation-")
         self.addCleanup(self.temporary.cleanup)
+        isolated_outputs = patch.dict(os.environ, {"GITHUB_OUTPUT": "", "GITHUB_STEP_SUMMARY": ""})
+        isolated_outputs.start()
+        self.addCleanup(isolated_outputs.stop)
         self.root = Path(self.temporary.name)
         self.git("init", "-b", "master")
         self.git("config", "user.name", "test")
@@ -188,7 +191,8 @@ class AutomationTests(unittest.TestCase):
         package.write_bytes(b"fixture archive")
         digest = hashlib.sha256(package.read_bytes()).hexdigest()
         (artifact / "SHA256SUMS.txt").write_text(digest + "  " + package.name + "\n")
-        (artifact / "build-info.json").write_text(json.dumps({"desktop_version": "0.4.0", "desktop_revision": self.base}))
+        (artifact / "VideoDL Desktop").mkdir()
+        (artifact / "VideoDL Desktop/build-info.json").write_text(json.dumps({"desktop_version": "0.4.0", "desktop_revision": self.base}))
         self.assertEqual(release.verify(self.root, artifact, "desktop-v0.4.0", self.base), package)
         package.write_bytes(b"changed")
         with self.assertRaisesRegex(ValueError, "校验值"):
