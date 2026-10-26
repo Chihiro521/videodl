@@ -63,6 +63,8 @@ uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.lock
 
 ## 构建、测试与发布
 
+上游定时同步、扫描、草稿 PR 和一键生成发行草稿的操作见 [自动化维护](AUTOMATION.md)。
+
 ```powershell
 uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.lock pyinstaller==6.22.3 pytest==9.1.1
 .\.venv\Scripts\python.exe -m pytest desktop/tests -q
