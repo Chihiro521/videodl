@@ -16,6 +16,8 @@ GitHub Actions → **Desktop upstream sync** 每天运行一次，也可点击 *
 
 扫描覆盖 Python、JavaScript/TypeScript、GitHub Actions。Dependency review 拦截新引入的高危、严重依赖漏洞；CodeQL 合并规则拦截新引入的高危、严重报告。扫描不替代对下载地址、命令执行、安装脚本和依赖变更的审查。
 
+`desktop/requirements.txt` 是实际安装和构建使用的固定依赖清单，采用 GitHub 可识别的名称。桌面依赖覆盖位于 `desktop/requirements-overrides.txt`；当前覆盖上游的旧 cryptography 上限，使用已修复告警的 50.0.2。更新清单使用 `uv pip compile requirements-desktop.txt --override desktop/requirements-overrides.txt --python-version 3.12 --output-file desktop/requirements.txt`，提交后由依赖审查与 Windows 测试共同验证。
+
 扫描与测试任务不带个人账号、B站登录或发行写入凭据。同步任务和发行草稿任务分别获得所需写权限。第三方 Action 固定到完整提交号。
 
 GitHub 定时任务不保证精确到分钟；公开仓库长期无活动时可能暂停定时任务，可在 Actions 重新启用。

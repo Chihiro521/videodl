@@ -21,6 +21,9 @@ class AutomationTests(unittest.TestCase):
         self.git("init", "-b", "master")
         self.git("config", "user.name", "test")
         self.git("config", "user.email", "test@example.test")
+        # Avoid a detached Git maintenance process racing temporary cleanup.
+        self.git("config", "gc.auto", "0")
+        self.git("config", "maintenance.auto", "false")
         self.write("videodl/__init__.py", "__version__ = '0.9.1'\n")
         self.write("videodl/parser.py", "original = True\n")
         self.git("add", ".")
