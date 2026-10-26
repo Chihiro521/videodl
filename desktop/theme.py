@@ -1,22 +1,73 @@
 from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QFont, QFontDatabase
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QFont, QFontDatabase, QPalette
+from PySide6.QtWidgets import QApplication, QAbstractButton
 from pathlib import Path
 import math
+from functools import lru_cache
 
 
-def apply_theme(application):
+LIGHT = dict(bg="#ffffff", surface="#f3f3f3", hover="#e9e9e9", line="#dedede", border="#a9a9a9",
+             text="#151515", muted="#707070", primary="#101010", on_primary="#ffffff",
+             selection="#ededed", disabled="#969696", done="#267752", error="#b52c3a")
+DARK = dict(bg="#111111", surface="#1e1e1e", hover="#2d2d2d", line="#353535", border="#686868",
+            text="#efefef", muted="#a5a5a5", primary="#efefef", on_primary="#111111",
+            selection="#292929", disabled="#767676", done="#7bdbab", error="#ff8c98")
+
+
+def colors():
+    return getattr(QApplication.instance(), "desktop_colors", LIGHT)
+
+
+def apply_theme(application, mode="system"):
+    dark = mode == "dark" or (mode == "system" and application.styleHints().colorScheme() == Qt.ColorScheme.Dark)
+    current = DARK if dark else LIGHT
+    if getattr(application, "desktop_theme", None) == ("dark" if dark else "light"):
+        return current
     # Qt's offscreen Windows plugin does not enumerate installed fonts.
     if not QFontDatabase.families():
-        for name in ("msyh.ttc", "msyhbd.ttc", "segoeui.ttf"):
+        for name in ("consola.ttf", "consolab.ttf", "msyh.ttc", "msyhbd.ttc", "segoeui.ttf"):
             path = Path("C:/Windows/Fonts") / name
             if path.is_file():
                 QFontDatabase.addApplicationFont(str(path))
-    application.setFont(QFont("Microsoft YaHei UI", 9))
-    application.setStyle("Fusion")
-    application.setStyleSheet(STYLE)
+    font = QFont()
+    font.setFamilies(["Consolas", "Microsoft YaHei UI"])
+    font.setPixelSize(14)
+    application.setFont(font)
+    if application.style().objectName().lower() != "fusion":
+        application.setStyle("Fusion")
+    application.desktop_colors = current
+    application.desktop_theme = "dark" if dark else "light"
+    palette = QPalette()
+    for role, color in ((QPalette.ColorRole.Window, current["bg"]), (QPalette.ColorRole.WindowText, current["text"]),
+                        (QPalette.ColorRole.Base, current["bg"]), (QPalette.ColorRole.Text, current["text"]),
+                        (QPalette.ColorRole.Button, current["surface"]), (QPalette.ColorRole.ButtonText, current["text"]),
+                        (QPalette.ColorRole.Highlight, current["primary"]), (QPalette.ColorRole.HighlightedText, current["on_primary"]),
+                        (QPalette.ColorRole.ToolTipBase, current["surface"]), (QPalette.ColorRole.ToolTipText, current["text"])):
+        palette.setColor(role, QColor(color))
+    application.setPalette(palette)
+    application.setStyleSheet(build_style(current, dark))
+    return current
 
 
-def icon(name, color="#5d6470", size=22):
+def icon(name, color=None, size=22):
+    return _draw_icon(name, color or colors()["text"], size)
+
+
+def set_symbol(widget, name):
+    widget.setProperty("symbol", name)
+    current = colors()
+    active = widget.objectName() in ("primary", "extractButton") or (widget.objectName() == "nav" and widget.isChecked())
+    widget.setIcon(icon(name, current["on_primary"] if active else current["text"]))
+
+
+def refresh_icons(root):
+    for widget in root.findChildren(QAbstractButton):
+        if name := widget.property("symbol"):
+            set_symbol(widget, name)
+
+
+@lru_cache(maxsize=128)
+def _draw_icon(name, color, size):
     pixmap = QPixmap(size * 2, size * 2)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -84,6 +135,9 @@ def icon(name, color="#5d6470", size=22):
         painter.drawLine(3, 7, 3, 4)
         painter.drawLine(3, 4, 10, 4)
         painter.drawLine(10, 4, 13, 7)
+    elif name == "paste":
+        painter.drawRoundedRect(QRectF(5, 5, 14, 16), 2, 2)
+        painter.drawRoundedRect(QRectF(8, 3, 8, 5), 1, 1)
     else:
         painter.drawArc(QRectF(4, 4, 16, 16), 45 * 16, 280 * 16)
         painter.drawLine(18, 3, 20, 7)
@@ -93,63 +147,74 @@ def icon(name, color="#5d6470", size=22):
     return QIcon(pixmap)
 
 
-STYLE = """
-* { font-family: 'Microsoft YaHei UI', 'Segoe UI'; font-size: 13px; color: #182230; }
-QMainWindow, QWidget#root, QWidget#page, QWidget#resultsPanel { background: #f8fafc; }
-QFrame#sidebar { background: #fff; border-right: 1px solid #edf0f4; }
-QFrame#inputPanel { background: white; border-bottom: 1px solid #f0f2f6; }
-QFrame#destinationBar { background: #fff; border-top: 1px solid #e8edf3; }
-QFrame#card { background: white; border: 1px solid #e7edf4; border-radius: 10px; }
-QFrame#emptyState { background: transparent; }
+def build_style(current, dark=False):
+    style = """
+* { font-family: 'Consolas', 'Microsoft YaHei UI'; font-size: 14px; color: @text@; }
+QMainWindow, QDialog, QWidget#root, QWidget#page, QWidget#resultsPanel { background: @bg@; }
+QFrame#sidebar { background: @surface@; border-right: 1px solid @line@; }
+QFrame#inputPanel, QFrame#emptyState { background: transparent; border: none; }
+QFrame#linkBox { background: @bg@; border: 1px solid @border@; border-radius: 9px; }
+QFrame#destinationBar { background: @bg@; border-top: 1px solid @line@; }
+QFrame#card { background: @bg@; border: 1px solid @line@; border-radius: 8px; }
+QFrame#segmented { background: @surface@; border: none; border-radius: 8px; }
 QLabel { background: transparent; border: none; }
-QLabel#muted { color: #7b8797; font-size: 12px; }
-QLabel#title { font-size: 20px; font-weight: 650; }
+QLabel#muted { color: @muted@; font-size: 12px; }
+QLabel#title { font-size: 22px; font-weight: 600; }
 QLabel#section { font-size: 15px; font-weight: 600; }
-QLabel#brand { font-size: 19px; font-weight: 700; }
-QLabel#emptyTitle { color: #64748b; font-size: 15px; padding: 10px; }
-QPushButton { background: white; border: 1px solid #dde3eb; border-radius: 7px; padding: 8px 12px; }
-QPushButton:hover { background: #eff6ff; border-color: #b6cdfa; }
-QPushButton:pressed { background: #dbeafe; }
-QPushButton:disabled { color: #a3acb9; background: #f5f7fa; border-color: #e7ebf1; }
-QPushButton#primary, QToolButton#extractButton { background: #1d4ed8; color: white; border: 1px solid #1d4ed8; border-radius: 7px; font-weight: 600; padding: 9px 15px; }
-QPushButton#primary:hover, QToolButton#extractButton:hover { background: #1e40af; }
-QPushButton#primary:disabled, QToolButton#extractButton:disabled { color: white; background: #96b4f5; border-color: #96b4f5; }
-QToolButton#extractButton::menu-button { border-left: 1px solid #7798ea; width: 29px; }
-QToolButton#extractButton::menu-arrow { image: url(ARROW_ASSET); width: 12px; height: 12px; }
-QPushButton#nav { text-align: left; border: none; background: transparent; color: #475569; padding: 11px 12px; }
-QPushButton#nav:hover { background: #f1f5f9; }
-QPushButton#nav:checked { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
+QLabel#brand { font-size: 24px; font-weight: 600; }
+QLabel#sidebarBrand { font-size: 19px; font-weight: 600; }
+QLabel#emptyTitle { font-size: 15px; padding: 7px; }
+QPushButton { background: @surface@; border: 1px solid @line@; border-radius: 7px; padding: 8px 12px; }
+QPushButton:hover { background: @hover@; border-color: @border@; }
+QPushButton:pressed { background: @selection@; }
+QPushButton:disabled { color: @disabled@; border-color: @line@; }
+QPushButton#primary { background: @primary@; color: @on_primary@; border-color: @primary@; }
+QPushButton#primary:hover { border-color: @border@; }
+QPushButton#primary:disabled { background: @hover@; color: @disabled@; border-color: @line@; }
 QPushButton#small { padding: 5px 9px; font-size: 12px; }
-QToolButton { border: none; background: transparent; border-radius: 6px; padding: 7px; }
-QToolButton:hover { background: #eaf1ff; }
-QToolButton#iconButton::menu-indicator { image: none; }
-QToolButton#resultDownload::menu-indicator { image: none; }
-QLineEdit, QPlainTextEdit, QComboBox, QSpinBox { background: white; border: 1px solid #dce2eb; border-radius: 7px; padding: 8px 10px; selection-background-color: #bfdbfe; }
-QLineEdit:focus, QPlainTextEdit:focus { border: 1px solid #6495ed; }
-QPlainTextEdit#linkInput { padding: 10px 12px; }
-QComboBox { min-height: 19px; padding-right: 24px; }
-QComboBox#qualityChoice { min-height: 18px; padding: 4px 8px; padding-right: 24px; }
-QComboBox::drop-down { border: none; width: 23px; }
-QComboBox::down-arrow { image: url(ARROW_DARK_ASSET); width: 11px; height: 11px; }
-QCheckBox { spacing: 8px; background: transparent; }
-QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; }
-QCheckBox::indicator:checked { background: #2563eb; border: 1px solid #2563eb; image: url(CHECK_ASSET); }
-QCheckBox::indicator:indeterminate { background: #2563eb; border: 1px solid #2563eb; image: url(MINUS_ASSET); }
-QProgressBar { background: #e8eef8; border: none; border-radius: 3px; max-height: 6px; min-height: 6px; }
-QProgressBar::chunk { background: #3b82f6; border-radius: 3px; }
-QTableWidget { background: white; alternate-background-color: #fbfdff; border: 1px solid #e9edf3; border-radius: 9px; gridline-color: #f1f4f8; outline: none; }
-QTableWidget::item { padding: 8px; border-bottom: 1px solid #f1f4f8; }
-QTableWidget::item:selected { background: #eff6ff; color: #172554; }
-QHeaderView::section { background: #fdfefe; border: none; border-bottom: 1px solid #edf0f5; padding: 12px 7px; color: #8290a2; font-size: 12px; }
-QMenu { background: white; border: 1px solid #dde5ef; padding: 5px; }
-QMenu::item { padding: 7px 19px; border-radius: 4px; }
-QMenu::item:selected { background: #eff6ff; color: #1d4ed8; }
-QMenu::separator { height: 1px; background: #edf0f5; margin: 4px 7px; }
-QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }
-QScrollBar::handle:vertical { background: #d4dce8; border-radius: 3px; min-height: 30px; }
+QPushButton#segment { background: transparent; border: none; padding: 6px 11px; border-radius: 6px; font-size: 13px; }
+QPushButton#segment:hover { background: @hover@; }
+QPushButton#segment:checked { background: @primary@; color: @on_primary@; }
+QToolButton { border: none; background: transparent; border-radius: 7px; padding: 7px; }
+QToolButton:hover { background: @hover@; }
+QToolButton#nav { font-size: 11px; color: @muted@; padding: 9px 1px; border-radius: 9px; }
+QToolButton#nav:checked { background: @primary@; color: @on_primary@; }
+QToolButton::menu-indicator { image: none; }
+QLineEdit, QPlainTextEdit, QComboBox, QSpinBox { background: @surface@; border: 1px solid @line@; border-radius: 7px; padding: 7px 9px; selection-background-color: @primary@; selection-color: @on_primary@; }
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border-color: @border@; }
+QPlainTextEdit#linkInput { background: transparent; border: none; padding: 9px 10px; }
+QComboBox { min-height: 20px; padding-right: 24px; }
+QComboBox#qualityChoice { min-height: 18px; padding: 4px 8px; padding-right: 23px; font-size: 13px; }
+QComboBox::drop-down { border: none; width: 22px; }
+QComboBox::down-arrow { image: url(@arrow@); width: 11px; height: 11px; }
+QComboBox QAbstractItemView { background: @surface@; color: @text@; border: 1px solid @border@; selection-background-color: @primary@; selection-color: @on_primary@; padding: 4px; }
+QCheckBox { spacing: 7px; background: transparent; font-size: 13px; }
+QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid @border@; border-radius: 4px; background: @bg@; }
+QCheckBox::indicator:checked { background: @primary@; border-color: @primary@; image: url(@check@); }
+QCheckBox::indicator:indeterminate { background: @primary@; border-color: @primary@; image: url(@minus@); }
+QCheckBox:disabled { color: @disabled@; }
+QProgressBar { background: @line@; border: none; border-radius: 2px; max-height: 4px; min-height: 4px; }
+QProgressBar::chunk { background: @text@; border-radius: 2px; }
+QTableWidget { background: @bg@; border: none; gridline-color: @line@; outline: none; }
+QTableWidget::item { padding: 7px; border-bottom: 1px solid @line@; }
+QTableWidget::item:selected { background: @selection@; color: @text@; }
+QHeaderView::section { background: @bg@; border: none; border-bottom: 1px solid @line@; padding: 10px 7px; color: @muted@; font-size: 12px; }
+QMenu { background: @surface@; color: @text@; border: 1px solid @line@; padding: 5px; }
+QMenu::item { padding: 7px 19px; border-radius: 5px; }
+QMenu::item:selected { background: @primary@; color: @on_primary@; }
+QMenu::item:disabled { color: @disabled@; }
+QMenu::separator { height: 1px; background: @line@; margin: 4px 7px; }
+QScrollArea { border: none; background: @bg@; }
+QScrollBar:vertical { background: transparent; width: 9px; margin: 2px; }
+QScrollBar::handle:vertical { background: @border@; border-radius: 3px; min-height: 28px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QStatusBar { background: #fff; color: #8390a1; font-size: 11px; }
+QStatusBar { background: @bg@; color: @muted@; font-size: 11px; }
+QToolTip { background: @surface@; color: @text@; border: 1px solid @border@; padding: 5px; }
 """
-for placeholder, filename in (("CHECK_ASSET", "check.svg"), ("MINUS_ASSET", "minus.svg"),
-                              ("ARROW_ASSET", "chevron.svg"), ("ARROW_DARK_ASSET", "chevron-dark.svg")):
-    STYLE = STYLE.replace(placeholder, '"' + (Path(__file__).with_name("assets") / filename).as_posix() + '"')
+    assets = Path(__file__).with_name("assets")
+    values = {**current, "arrow": assets / ("chevron.svg" if dark else "chevron-dark.svg"),
+              "check": assets / ("check-dark.svg" if dark else "check.svg"),
+              "minus": assets / ("minus-dark.svg" if dark else "minus.svg")}
+    for name, value in values.items():
+        style = style.replace("@" + name + "@", '"' + value.as_posix() + '"' if isinstance(value, Path) else value)
+    return style

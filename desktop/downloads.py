@@ -10,6 +10,8 @@ from .process import Worker
 from .storage import public_host
 from .widgets import button
 from .quality import recommended_formats
+from .theme import colors
+from PySide6.QtGui import QColor
 
 STATES = {"waiting": "等待中", "active": "下载中", "done": "已完成", "failed": "失败",
           "partial": "部分完成", "cancelled": "已取消", "interrupted": "已中断", "idle": "待下载"}
@@ -113,15 +115,20 @@ class DownloadQueue:
             self.render_queue()
         elif kind == "progress":
             job.update(detail=event.get("detail", "正在下载"), percent=event.get("percent", -1))
-            self.update_progress(job)
+            self.pending_progress[job["id"]] = job
+            if not self.progress_timer.isActive():
+                self.progress_timer.start()
+            return
         elif kind == "file":
             job["files"].append({key: event[key] for key in ("path", "kind", "item_key", "format_id") if key in event})
         elif kind == "result":
+            self.pending_progress.pop(job["id"], None)
             job["status"] = event.get("status", "done")
             job["files"] = event.get("files", job["files"])
             job["detail"] = "；".join(event.get("errors", [])) or "下载完成"
             job["percent"] = 100 if job["status"] == "done" else 0
         elif kind == "error":
+            self.pending_progress.pop(job["id"], None)
             job.update(status="partial" if job["files"] else "failed", detail=event["message"], percent=0)
         self.catalog.sync_job(job)
         self.refresh_result_status()
@@ -130,6 +137,7 @@ class DownloadQueue:
             self.render_queue()
 
     def job_finished(self, job, code):
+        self.pending_progress.pop(job["id"], None)
         worker = self.running.pop(job["id"], None)
         if worker and worker.cancelled:
             job.update(status="cancelled", detail="任务已取消，已完成文件保留。")
@@ -153,25 +161,56 @@ class DownloadQueue:
         progress = self.table.cellWidget(row, 3)
         percent = job.get("percent", 0)
         progress.setRange(0, 0 if percent < 0 and job["status"] == "active" else 100)
-        progress.setValue(max(0, percent))
+        progress.setValue(round(max(0, percent)))
         progress.setToolTip(job.get("detail", ""))
         self.table.item(row, 0).setToolTip(job.get("detail", ""))
 
+    def flush_progress(self):
+        jobs, self.pending_progress = self.pending_progress, {}
+        for job in jobs.values():
+            self.update_progress(job)
+            self.refresh_result_status(job["id"])
+
     def render_queue(self):
+        self.queue_search_timer.stop()
+        scroll = self.table.verticalScrollBar().value()
+        self.table.setUpdatesEnabled(False)
+        try:
+            self._render_queue()
+        finally:
+            self.table.verticalScrollBar().setValue(scroll)
+            self.table.setUpdatesEnabled(True)
+
+    def _render_queue(self):
         selected = self.queue_filter.currentData()
         query = self.queue_search.text().strip().casefold()
         jobs = [job for job in reversed(self.jobs) if (not selected or job["status"] in selected)
                 and (not query or query in job.get("title", "").casefold())]
+        identifiers = [job["id"] for job in jobs]
+        if identifiers != list(self.queue_row_map):
+            self.table.setRowCount(0)
+            self.queue_signatures.clear()
         self.queue_row_map = {}
         self.table.setRowCount(len(jobs))
         for row, job in enumerate(jobs):
             self.queue_row_map[job["id"]] = row
-            self.table.setRowHeight(row, 66)
+            signature = (job.get("title"), job["url"], repr(job["options"]), job["status"], bool(job.get("files")))
+            if self.queue_signatures.get(job["id"]) == signature:
+                self.update_progress(job)
+                self.table.item(row, 2).setToolTip(job.get("detail", ""))
+                continue
+            self.queue_signatures[job["id"]] = signature
+            for column in (3, 4):
+                previous_widget = self.table.cellWidget(row, column)
+                if previous_widget:
+                    previous_widget.hide()
+            self.table.setRowHeight(row, 56)
             title = QTableWidgetItem(job.get("title", "未命名") + "\n" + public_host(job["url"]))
             title.setToolTip(job.get("detail", ""))
             self.table.setItem(row, 0, title)
             self.table.setItem(row, 1, QTableWidgetItem(" / ".join(KINDS[kind] for kind, value in job["options"].items() if value and kind in KINDS)))
             state = QTableWidgetItem(STATES.get(job["status"], job["status"]))
+            state.setForeground(QColor(colors()["done"] if job["status"] == "done" else colors()["error"] if job["status"] in ("failed", "partial") else colors()["muted"]))
             state.setToolTip(job.get("detail", ""))
             self.table.setItem(row, 2, state)
             progress = QProgressBar()
@@ -194,7 +233,8 @@ class DownloadQueue:
         active = sum(job["status"] == "active" for job in self.jobs)
         waiting = sum(job["status"] == "waiting" for job in self.jobs)
         self.queue_summary.setText(f"共 {len(self.jobs)} 项 · {active} 项下载中 · {waiting} 项等待 · {done} 项完成")
-        self.nav[1].setText("下载队列" + (f"   {active + waiting}" if active + waiting else ""))
+        self.nav[1].setText("队列" + (f" {active + waiting}" if active + waiting else ""))
+        self.nav[1].setToolTip(self.queue_summary.text())
 
     def cancel_job(self, job):
         if job["id"] in self.running:

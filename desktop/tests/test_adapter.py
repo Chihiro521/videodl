@@ -34,6 +34,8 @@ def test_three_outputs_and_collision_are_real_files(tmp_path, media_server):
     assert result["status"] == "done", result["errors"]
     files = {f["kind"]: Path(f["path"]) for f in result["files"]}
     assert set(files) == {"cover", "audio", "video"}
+    assert all(path.parent == tmp_path for path in files.values())
+    assert not any(path.is_dir() for path in tmp_path.iterdir())
     assert digest(files["video"]) == digest(source / "sample.mp4")
     assert digest(files["cover"]) == digest(source / "cover.png")
     streams = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(files["audio"])]))["streams"]
@@ -48,6 +50,26 @@ def test_three_outputs_and_collision_are_real_files(tmp_path, media_server):
     assert again["status"] == "done"
     assert Path(again["files"][0]["path"]) != files["video"]
     assert files["video"].is_file()
+
+
+def test_concurrent_same_name_publishing_keeps_every_file(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from desktop.adapter import publish_file
+    target = tmp_path / "中文标题.mp4"
+    target.write_bytes(b"existing")
+    barrier = threading.Barrier(8)
+    def publish(number):
+        temporary = tmp_path / f"stage-{number}.tmp"
+        temporary.write_bytes(str(number).encode())
+        barrier.wait()
+        return publish_file(temporary, target)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        files = list(pool.map(publish, range(8)))
+    assert len(set(files)) == 8
+    assert {path.read_bytes() for path in files} == {str(i).encode() for i in range(8)}
+    assert target.read_bytes() == b"existing"
+    assert {path.name for path in files} == {f"中文标题 ({i}).mp4" for i in range(1, 9)}
 
 
 def test_audio_only_leaves_no_video_or_temporary_files(tmp_path, media_server):

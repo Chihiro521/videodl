@@ -27,6 +27,7 @@ class ExtractionController:
             self.navigate(2)
             return
         if replace:
+            self.batch_started = True
             self.catalog.rows.clear()
             self.jobs = [job for job in self.jobs if job["id"] in self.running]
             self.extraction_failures.clear()
@@ -50,6 +51,10 @@ class ExtractionController:
             self.extraction_failures.pop(url, None)
         self.parse_button.setEnabled(False)
         self.stop_extract.show()
+        self.extract_progress.setRange(0, 0)
+        self.extract_progress.show()
+        self.update_workbench_layout()
+        self.update_empty_state()
         self.pump_extraction()
 
     def pump_extraction(self):
@@ -83,6 +88,8 @@ class ExtractionController:
         if worker:
             worker.deleteLater()
         self.extraction_completed += 1
+        self.extract_progress.setRange(0, self.extraction_total)
+        self.extract_progress.setValue(self.extraction_completed)
         if self.closing:
             return
         if self.extraction_active or self.extraction_waiting:
@@ -91,6 +98,7 @@ class ExtractionController:
         self.parse_button.setEnabled(True)
         self.parse_button.setText("提取链接")
         self.stop_extract.hide()
+        self.extract_progress.hide()
         failures = len(self.extraction_failures)
         self.retry_extract_button.setVisible(bool(failures))
         self.retry_extract_button.setText(f"重试失败链接（{failures}）")
