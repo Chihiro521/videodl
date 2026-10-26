@@ -50,7 +50,7 @@ Windows 桌面版，用于批量保存视频封面、独立音频和视频。界
 git clone --branch desktop https://github.com/Chihiro521/videodl.git
 cd videodl
 uv venv --python 3.12
-uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.lock
+uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.txt
 ```
 
 安装依赖后双击仓库根目录的 `启动桌面版.vbs`。开发时也可运行：
@@ -66,12 +66,12 @@ uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.lock
 上游定时同步、扫描、草稿 PR 和一键生成发行草稿的操作见 [自动化维护](AUTOMATION.md)。
 
 ```powershell
-uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.lock pyinstaller==6.22.3 pytest==9.1.1
+uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.txt pyinstaller==6.22.3 pytest==9.1.1
 .\.venv\Scripts\python.exe -m pytest desktop/tests -q
 .\.venv\Scripts\python.exe -m desktop.build
 ```
 
-输出位于 `dist/desktop/`，包含便携文件夹、ZIP 和 `SHA256SUMS.txt`。构建需要 Git、网络和全新输出目录。FFmpeg 使用 `media-tools.json` 中固定的下载地址与 SHA-256；Python 依赖固定在 `requirements.lock`。
+输出位于 `dist/desktop/`，包含便携文件夹、ZIP 和 `SHA256SUMS.txt`。构建需要 Git、网络和全新输出目录。FFmpeg 使用 `media-tools.json` 中固定的下载地址与 SHA-256；Python 依赖固定在 `requirements.txt`。
 
 构建只收录所需的源码和资源，生成独立的发行用上游副本，清除源码内置的 Cookie、服务 token 和密钥默认值；相关解析器的可用性仍需单独验证。构建不会修改工作区的上游源码。发行包不包含 `.wvd` 身份文件、本机配置、日志和历史下载。`public-build-audit.json` 记录处理的字段名，`build-info.json` 记录构建版本，`THIRD-PARTY-NOTICES.txt` 保留依赖说明与来源。
 
