@@ -1,0 +1,36 @@
+name: Desktop upstream sync
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Create upstream PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: desktop
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare trusted synchronizer
+        run: cp scripts/desktop_automation.py "$RUNNER_TEMP/desktop_automation.py"
+      - name: Check upstream and create a draft PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_LFS_SKIP_SMUDGE: '1'
+        run: python "$RUNNER_TEMP/desktop_automation.py" sync --publish-pr

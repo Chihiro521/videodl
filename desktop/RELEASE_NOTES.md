@@ -1,12 +1,12 @@
-# VideoDL Desktop 0.4.0
+# VideoDL Desktop 0.4.1
 
-- 画质下拉框每个分辨率只显示一个推荐版本，其他编码、帧率及传输方式可从行末“更多 → 其他编码 / 格式”选择。每行选择独立，批量下载遵循各行选择。
-- 点击“提取链接”开始新一批时清空旧结果及非运行队列；正在下载的任务继续，已下载文件保留。编辑输入框不会清空；重试失败链接保留同批成功结果。
-- 新增“设置 → B站高清画质 → 扫码登录B站”。扫码确认一次后自动复用登录状态，获取账号可访问的高清画质；登录变化后自动失效旧解析缓存。
-- B站匿名 DASH 缺少高清时尝试官方 HTML5 版本，并用 FFprobe 核对真实分辨率。已含音轨的版本直接保存，避免重复下载音频。
+本版将桌面运行依赖 cryptography 升级到 50.0.2，处理 GHSA-537c-gmf6-5ccf、GHSA-g6cj-pr64-35w5、GHSA-jwv3-5hgf-82ww 等告警。桌面依赖覆盖单独维护，上游源码及原始依赖声明保持原样。
 
-实测 `BV1Mx4y117f6` 登录后返回 1080p、720p、480p、360p，成功下载 1080×1920 H.264 视频及 AAC 音轨、独立 M4A 和原图封面。
+- 上游每天检查更新，有源码变化时创建同步草稿 PR，忽略自动生成的测试报告和示例视频。
+- PR 自动执行 Python、JavaScript/TypeScript、Actions 的 CodeQL、依赖审查、同步边界检查和 Windows 功能测试。
+- 自动同步保留桌面维护文件，合并冲突会阻止后续执行；已有同步 PR 保留人工修改。
+- 支持从 Actions 手动生成便携包和发行草稿。构建与发行权限分开，发行前复核源码版本、提交号及 ZIP 校验值。
 
-下载 `VideoDL-Desktop-0.4.0-windows-x64.zip`，完整解压后双击 `VideoDL Desktop.exe`，保留同目录下的 `_internal` 文件夹。Python、FFmpeg、ffprobe 和 Node.js 随包提供。
+下载 `VideoDL-Desktop-0.4.1-windows-x64.zip`，完整解压后双击 `VideoDL Desktop.exe`，保留同目录下的 `_internal` 文件夹。
 
-登录状态由 Windows 当前用户加密保存在本机。发行包包含 `LICENSE.txt`、`THIRD-PARTY-NOTICES.txt` 和构建记录。
+Python、FFmpeg、ffprobe 和 Node.js 随包提供。自动化维护说明见源码中的 `desktop/AUTOMATION.md`。

@@ -42,15 +42,17 @@
 
 ## 同步上游
 
+日常优先使用 GitHub 自动创建的同步草稿 PR。定时任务、检查规则和发行操作见 [AUTOMATION.md](AUTOMATION.md)。
+
 先保存本地修改，并切换到 `desktop`，然后运行：
 
 ```powershell
 .\scripts\sync-desktop.ps1
 ```
 
-脚本获取 `upstream/master`，检查是否有新提交，创建 `codex/sync-upstream-时间` 分支并合并，再运行桌面测试。遇到冲突时，保留现场供修复；脚本不会自动舍弃任一方修改。
+脚本获取原作者 `master`，检查是否有新提交，创建 `codex/sync-upstream-提交号` 分支并准备合并。保留桌面维护文件，使用 AST 读取版本，不导入新增上游代码。冲突会记录为待处理项；审查后再执行测试。
 
-本地验证通过后，可用同一脚本的 `-PublishPR` 参数创建同步 PR。该参数只在本次脚本创建了更新分支且测试成功时生效：
+直接创建同步草稿 PR 并启动云端检查：
 
 ```powershell
 .\scripts\sync-desktop.ps1 -PublishPR
