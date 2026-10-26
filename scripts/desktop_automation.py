@@ -75,7 +75,8 @@ def merge_upstream(root, revision):
     # Keep the desktop automation, dependency lock and entrypoint exactly as
     # reviewed on the target branch, even when upstream modifies them.
     existing = set(git(root, "ls-tree", "-r", "--name-only", base).stdout.splitlines())
-    restore = [p for p in OWNED + GENERATED if any(f == p or f.startswith(p + "/") for f in existing)]
+    present = existing | set(git(root, "ls-files").stdout.splitlines())
+    restore = [p for p in OWNED + GENERATED if any(f == p or f.startswith(p + "/") for f in present)]
     git(root, "restore", "--source=" + base, "--staged", "--worktree", "--", *restore)
     conflicts = [p for p in git(root, "diff", "--name-only", "--diff-filter=U").stdout.splitlines() if p]
     if conflicts:

@@ -58,11 +58,13 @@ class AutomationTests(unittest.TestCase):
                                   "videodl/__init__.py": "__version__ = '0.9.2'\nraise RuntimeError('must not execute')\n",
                                   ".github/workflows/desktop-ci.yml": "upstream replacement\n",
                                   ".github/workflows/new.yml": "unreviewed\n",
+                                  "daily_test_results/new-report.json": "{}\n",
                                   "desktop/__init__.py": "__version__ = '99.0.0'\n"})
         result = automation.merge_upstream(self.root, revision)
         self.assertFalse(result["blocked"])
         self.assertEqual((self.root / ".github/workflows/desktop-ci.yml").read_text(), "trusted\n")
         self.assertFalse((self.root / ".github/workflows/new.yml").exists())
+        self.assertFalse((self.root / "daily_test_results/new-report.json").exists())
         self.assertIn("updated", (self.root / "videodl/parser.py").read_text())
         metadata = json.loads((self.root / "desktop/upstream.json").read_text())
         self.assertEqual(metadata["core_version"], "0.9.2")
