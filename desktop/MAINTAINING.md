@@ -28,7 +28,7 @@
 
 | 文件 | 负责内容 |
 | --- | --- |
-| `app.py`、`pages.py`、`theme.py` | 程序入口、页面布局、视觉样式 |
+| `app.py`、`pages.py`、`layouts.py`、`theme.py` | 程序入口、页面布局、首页与结果状态、明暗样式 |
 | `extraction.py` | 多链接提取、停止、失败重试 |
 | `results.py`、`resultview.py` | 结果数据、筛选、选择、逐行操作 |
 | `downloads.py`、`process.py` | 下载队列与后台进程 |

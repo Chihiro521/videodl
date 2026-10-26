@@ -4,9 +4,9 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile, QUrl
+from PySide6.QtCore import QLockFile, QTimer, Qt, QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox, QSizePolicy
 
 from . import REPOSITORY
 from .downloads import DownloadQueue
@@ -17,14 +17,14 @@ from .pool import EnginePool
 from .results import ResultCatalog
 from .resultview import ResultView
 from .storage import data_dir, load_json, parse_links, save_json
-from .theme import apply_theme, icon
+from .theme import apply_theme, icon, refresh_icons, set_symbol
 
 
 class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, ResultView):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("VideoDL Desktop")
-        self.setWindowIcon(icon("download", "#2563eb", 48))
+        self.setWindowIcon(icon("download", size=48))
         self.resize(1180, 800)
         self.setMinimumSize(980, 680)
         self.store = data_dir()
@@ -32,6 +32,9 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
         self.settings = load_json(self.store / "settings.json", {})
         if not isinstance(self.settings, dict):
             self.settings = {}
+        if self.settings.get("theme") not in ("system", "light", "dark"):
+            self.settings["theme"] = "system"
+        apply_theme(QApplication.instance(), self.settings["theme"])
         loaded = load_json(self.store / "queue.json", [])
         self.jobs = [job for job in loaded if isinstance(job, dict) and all(key in job for key in
             ("id", "url", "options", "output", "status"))] if isinstance(loaded, list) else []
@@ -50,22 +53,39 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
         self.extraction_total = 0
         self.extraction_completed = 0
         self.extraction_cancelled = False
+        self.batch_started = False
         self.update_worker = None
         self.bilibili_dialog = None
         self.closing = False
         self.paused = False
         self.result_row_map = {}
         self.queue_row_map = {}
+        self.result_signatures = {}
+        self.result_status_signatures = {}
+        self.result_lookup = {}
+        self.queue_signatures = {}
+        self.pending_progress = {}
+        self.progress_timer = QTimer(self)
+        self.progress_timer.setSingleShot(True)
+        self.progress_timer.setInterval(75)
+        self.progress_timer.timeout.connect(self.flush_progress)
+        self.settings_timer = QTimer(self)
+        self.settings_timer.setSingleShot(True)
+        self.settings_timer.setInterval(250)
+        self.settings_timer.timeout.connect(self.persist)
+        self.saved_payloads = {}
         self.release_url = f"https://github.com/{REPOSITORY}/releases"
         self._build()
-        self.render_results()
-        self.render_queue()
-        self.persist()
+        QApplication.instance().styleHints().colorSchemeChanged.connect(self.system_theme_changed)
+        self.change_theme()
 
     def navigate(self, index):
         self.pages.setCurrentIndex(index)
         for current, nav in enumerate(self.nav):
             nav.setChecked(current == index)
+            set_symbol(nav, nav.property("symbol"))
+        if hasattr(self, "destination_bar"):
+            self.destination_bar.setVisible(index in (0, 1))
 
     def say(self, text):
         self.message.setText(text)
@@ -108,6 +128,44 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
     def update_link_count(self):
         count = len(parse_links(self.links.toPlainText()))
         self.link_count.setText(f"已识别 {count} 个链接 · Ctrl+Enter 提取" if count else "支持 Bilibili、抖音、YouTube 等链接")
+        self.link_count.setToolTip(self.link_count.text())
+
+    def update_workbench_layout(self):
+        expanded = bool(self.catalog.rows or self.batch_started or self.extraction_failures or
+                        self.extraction_active or self.extraction_waiting)
+        self.home_intro.setVisible(not expanded)
+        self.results_panel.setVisible(expanded)
+        policy = QSizePolicy.Policy.Fixed if expanded else QSizePolicy.Policy.Expanding
+        for spacer in (self.home_top_space, self.home_bottom_space):
+            spacer.changeSize(0, 0, QSizePolicy.Policy.Minimum, policy)
+        home_width = min(720, max(200, self.width() - 136))
+        self.input_frame.setMinimumWidth(0 if expanded else home_width)
+        self.input_frame.setMaximumWidth(16777215 if expanded else home_width)
+        self.download_layout.setAlignment(self.input_frame, Qt.AlignmentFlag(0) if expanded else Qt.AlignmentFlag.AlignHCenter)
+        self.download_layout.invalidate()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "download_layout"):
+            self.update_workbench_layout()
+
+    def change_theme(self, *_):
+        mode = self.theme_control.currentData()
+        self.settings["theme"] = mode
+        apply_theme(QApplication.instance(), mode)
+        self.setWindowIcon(icon("download", size=48))
+        self.home_mark.setPixmap(icon("download", size=62).pixmap(62, 62))
+        refresh_icons(self)
+        self.result_signatures.clear()
+        self.result_status_signatures.clear()
+        self.queue_signatures.clear()
+        self.render_results()
+        self.render_queue()
+        self.persist()
+
+    def system_theme_changed(self, *_):
+        if self.settings["theme"] == "system":
+            self.change_theme()
 
     def choose_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "选择保存文件夹", self.destination.text())
@@ -158,16 +216,23 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
     def persist(self):
         if not hasattr(self, "destination"):
             return
+        self.settings_timer.stop()
         self.settings.update(output=self.destination.text(), common=self.common.isChecked(),
             options={kind: check.isChecked() for kind, check in self.options.items()},
             concurrency=self.concurrency.value(), extract_concurrency=self.extract_concurrency.value(),
-            auto_download=self.auto_download.isChecked())
+            auto_download=self.auto_download.isChecked(), theme=self.theme_control.currentData())
         try:
-            save_json(self.store / "settings.json", self.settings)
-            save_json(self.store / "queue.json", self.jobs)
-            save_json(self.store / "results.json", self.catalog.rows)
+            import json
+            for name, value in (("settings", self.settings), ("queue", self.jobs), ("results", self.catalog.rows)):
+                payload = json.dumps(value, ensure_ascii=False)
+                if self.saved_payloads.get(name) != payload:
+                    save_json(self.store / (name + ".json"), value)
+                    self.saved_payloads[name] = payload
         except OSError:
             self.statusBar().showMessage("本地记录保存失败，请检查数据文件夹的可写权限。")
+
+    def schedule_settings_save(self):
+        self.settings_timer.start()
 
     def closeEvent(self, event):
         if self.bilibili_dialog and self.bilibili_dialog.thread.isRunning():
@@ -189,6 +254,8 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
                 worker.process.kill()
                 worker.process.waitForFinished(1000)
         self.engine_pool.close()
+        self.progress_timer.stop()
+        self.pending_progress.clear()
         self.persist()
         event.accept()
 

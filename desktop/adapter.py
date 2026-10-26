@@ -6,6 +6,7 @@ particular list of platforms. Opaque stream objects remain inside the worker.
 
 import copy
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -81,6 +82,22 @@ def unique_path(path: Path) -> Path:
         candidate = path.with_name(f"{path.stem} ({count}){path.suffix}")
         count += 1
     return candidate
+
+
+def publish_file(source: Path, target: Path) -> Path:
+    """Publish a finished file without replacing a concurrent download."""
+    while True:
+        candidate = unique_path(target)
+        try:
+            if os.name == "nt":
+                # Windows rename is atomic and refuses an existing destination.
+                os.rename(source, candidate)
+            else:
+                os.link(source, candidate)
+                source.unlink()
+            return candidate
+        except FileExistsError:
+            continue
 
 
 def cover_url(value) -> str:
@@ -261,8 +278,7 @@ class Adapter:
             if not paths:
                 raise DesktopError("媒体下载未完成，请重新解析后重试。")
             actual = paths[0]
-            target = unique_path(target.with_suffix(actual.suffix))
-            shutil.move(str(actual), target)
+            target = publish_file(actual, target.with_suffix(actual.suffix))
         return target
 
     def fetch_separate(self, info, target):
@@ -282,8 +298,7 @@ class Adapter:
                 "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", str(merged)], capture_output=True, timeout=7200)
             if result.returncode or not merged.is_file() or not merged.stat().st_size:
                 raise DesktopError("所选画质与音轨合并失败，请重新提取后重试。")
-            target = unique_path(target.with_suffix(merged.suffix))
-            shutil.move(str(merged), target)
+            target = publish_file(merged, target.with_suffix(merged.suffix))
         return target
 
     def fetch_dash(self, info, target):
@@ -301,8 +316,7 @@ class Adapter:
             result = subprocess.run(args, capture_output=True, timeout=7200)
             if result.returncode or not temporary.is_file() or not temporary.stat().st_size:
                 raise DesktopError("所选画质下载未完成，请重新提取后重试。")
-            target = unique_path(target.with_suffix(".mp4"))
-            shutil.move(str(temporary), target)
+            target = publish_file(temporary, target.with_suffix(".mp4"))
         return target
 
     def extract_audio(self, media: Path, destination: Path) -> Path:
@@ -316,13 +330,14 @@ class Adapter:
         except (ValueError, KeyError, IndexError):
             raise DesktopError("这个媒体中没有可提取的音轨。")
         ext = {"aac": "m4a", "alac": "m4a", "mp3": "mp3", "opus": "opus", "vorbis": "ogg", "flac": "flac"}.get(codec, "wav" if codec.startswith("pcm_") else "mka")
-        output = unique_path(destination.parent / (destination.name + "." + ext))
-        self.report("progress", percent=-1, detail="正在提取原始音轨")
-        result = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-n", "-i", str(media), "-map", "0:a:0", "-vn", "-c:a", "copy", str(output)], capture_output=True, timeout=7200, **flags)
-        if result.returncode or not output.is_file() or not output.stat().st_size:
-            output.unlink(missing_ok=True)
-            raise DesktopError("音轨提取失败，请重试或保留视频文件。")
-        return output
+        with tempfile.TemporaryDirectory(prefix=".audio-", dir=destination.parent) as scratch:
+            self.report("scratch", path=scratch)
+            output = Path(scratch) / (destination.name + "." + ext)
+            self.report("progress", percent=-1, detail="正在提取原始音轨")
+            result = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-n", "-i", str(media), "-map", "0:a:0", "-vn", "-c:a", "copy", str(output)], capture_output=True, timeout=7200, **flags)
+            if result.returncode or not output.is_file() or not output.stat().st_size:
+                raise DesktopError("音轨提取失败，请重试或保留视频文件。")
+            return publish_file(output, destination.parent / output.name)
 
     def download(self, infos, options, indices=None, item_keys=None, format_ids=None):
         indexed = list(enumerate(infos))
@@ -342,8 +357,7 @@ class Adapter:
         for number, (source_index, original) in enumerate(selected, 1):
             info = self.select_format(original, (format_ids or {}).get(media_key(original, source_index)))
             title = filename(info.title)
-            folder = self.output / title
-            folder.mkdir(parents=True, exist_ok=True)
+            folder = self.output
             self.report("progress", percent=-1, detail=f"正在处理 {number}/{len(selected)}：{info.title}")
             def record(path, kind):
                 entry = {"path": str(path), "kind": kind, "item_key": media_key(original, source_index),
@@ -353,15 +367,18 @@ class Adapter:
             if options.get("cover"):
                 try:
                     data, ext = self.cover_bytes(info)
-                    path = unique_path(folder / f"{title}_封面.{ext}")
-                    path.write_bytes(data)
+                    with tempfile.TemporaryDirectory(prefix=".media-", dir=folder) as scratch:
+                        self.report("scratch", path=scratch)
+                        temporary = Path(scratch) / f"{title}_封面.{ext}"
+                        temporary.write_bytes(data)
+                        path = publish_file(temporary, folder / temporary.name)
                     record(path, "cover")
                 except Exception as exc:
                     errors.append("封面：" + download_error(exc))
             media = None
             if options.get("video"):
                 try:
-                    media = self.fetch_media(info, unique_path(folder / f"{title}.{extension(info.ext)}"))
+                    media = self.fetch_media(info, folder / f"{title}.{extension(info.ext)}")
                     record(media, "video")
                 except Exception as exc:
                     errors.append("视频：" + download_error(exc))
@@ -370,7 +387,7 @@ class Adapter:
                     if media:
                         audio = self.extract_audio(media, folder / title)
                     elif info.audio_download_url:
-                        audio = self.fetch_media(info, unique_path(folder / f"{title}.{extension(info.audio_ext, 'm4a')}"), audio_only=True)
+                        audio = self.fetch_media(info, folder / f"{title}.{extension(info.audio_ext, 'm4a')}", audio_only=True)
                     else:
                         # Upstream temporary downloads stay on the chosen disk and
                         # are removed even when extraction fails.
