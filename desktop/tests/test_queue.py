@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 from desktop.app import Window
 from desktop.storage import load_json, parse_links
 import time
+from pathlib import Path
 
 
 @pytest.fixture(scope="module")
@@ -68,7 +69,8 @@ def test_qt_queue_runs_a_real_background_download(application, tmp_path, monkeyp
     window.close()
 
 
-def test_cancel_stops_worker_and_removes_owned_partial_files(application, tmp_path, monkeypatch):
+@pytest.mark.parametrize("save_mode", ["flat", "by_work", "by_type"])
+def test_cancel_stops_worker_and_removes_owned_partial_files(application, tmp_path, monkeypatch, save_mode):
     import http.server
     import threading
     class SlowMedia(http.server.BaseHTTPRequestHandler):
@@ -93,6 +95,7 @@ def test_cancel_stops_worker_and_removes_owned_partial_files(application, tmp_pa
     monkeypatch.setenv("VIDEODL_DESKTOP_DATA", str(tmp_path / "appdata"))
     window = Window()
     window.destination.setText(str(tmp_path / "output"))
+    window.save_mode.setCurrentIndex(window.save_mode.findData(save_mode))
     window.links.setPlainText(f"http://127.0.0.1:{server.server_port}/slow.mp4")
     for kind, check in window.options.items():
         check.setChecked(kind == "video")
@@ -112,6 +115,8 @@ def test_cancel_stops_worker_and_removes_owned_partial_files(application, tmp_pa
     assert not window.running
     assert window.jobs[0]["status"] == "cancelled"
     assert not list((tmp_path / "output").rglob(".media-*"))
+    assert not list((tmp_path / "output").iterdir())
+    assert not any(Path(p).exists() for p in worker.scratch)
     window.close()
     server.shutdown()
     server.server_close()

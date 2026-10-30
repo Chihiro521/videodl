@@ -50,7 +50,8 @@ def schedule_capture(window, report_path):
                     formats = recommended_formats(row["formats"])
                     row["format_id"] = formats[min(command.get("quality_index", 0), len(formats)-1)]["id"]
             window.render_results()
-            window.download_results(rows)
+            window.type_filter.setCurrentIndex(max(0, window.type_filter.findData("" if kind == "all" else kind)))
+            window.download_all_button.click()
             stage = "download"
         elif stage == "download" and not window.running and not any(job["status"] == "waiting" for job in window.jobs):
             capture()
@@ -60,6 +61,8 @@ def schedule_capture(window, report_path):
         window.destination.setText(command["output"])
         window.common.setChecked(command.get("common", False))
         window.auto_download.setChecked(False)
+        window.concurrency.setValue(command.get("concurrency", 1))
+        window.save_mode.setCurrentIndex(max(0, window.save_mode.findData(command.get("save_mode", "flat"))))
         window.links.setPlainText(command.get("text", command.get("url", "")))
         window.start_preview()
     timer.start()

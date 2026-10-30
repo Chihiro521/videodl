@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QHeaderView, QLineEdit,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QHBoxLayout, QHeaderView, QLineEdit,
     QProgressBar, QSizePolicy, QSpacerItem, QStackedWidget, QToolButton, QVBoxLayout, QWidget)
 
 from . import __version__
@@ -73,7 +73,16 @@ def build_shell(window):
     save.addWidget(window.destination, 1)
     save.addWidget(button("更改", window.choose_directory))
     save.addWidget(tool_button("folder", "打开保存文件夹", lambda: window.open_folder(window.destination.text())))
-    save.addWidget(label("直接保存文件", "muted"))
+    save.addWidget(label("保存方式", "muted"))
+    window.save_mode = QComboBox()
+    window.save_mode.setAccessibleName("保存方式")
+    window.save_mode.addItem("直接保存文件", "flat")
+    window.save_mode.addItem("按作品分文件夹", "by_work")
+    window.save_mode.addItem("按类型分文件夹", "by_type")
+    window.save_mode.setCurrentIndex(max(0, window.save_mode.findData(window.settings.get("save_mode", "flat"))))
+    window.save_mode.setToolTip("选择新下载任务的保存方式；已加入队列的任务继续使用原方式")
+    window.save_mode.currentIndexChanged.connect(window.schedule_settings_save)
+    save.addWidget(window.save_mode)
     right.addWidget(window.destination_bar)
     outer.addLayout(right, 1)
     window.setCentralWidget(root)
