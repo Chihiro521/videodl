@@ -11,16 +11,23 @@ from .media import canonical_url, legacy_media_key, media_key
 
 
 class Session:
-    def __init__(self, capacity=50, ttl=600, clock=time.monotonic):
+    def __init__(self, capacity=50, ttl=600, clock=time.monotonic, workspace=None):
         self.capacity, self.ttl, self.clock = capacity, ttl, clock
         self.cache = OrderedDict()
         self.adapters = {}
+        self.workspace = Path(workspace) if workspace is not None else None
+
+    def close(self):
+        for adapter in self.adapters.values():
+            if hasattr(adapter, "close"):
+                adapter.close()
 
     def execute(self, command, report):
         from .adapter import Adapter
         common = command.get("common", True)
         if common not in self.adapters:
-            self.adapters[common] = Adapter(Path(command["output"]), report, common=common)
+            kwargs = {"workspace": self.workspace / ("common" if common else "direct")} if self.workspace is not None else {}
+            self.adapters[common] = Adapter(Path(command["output"]), report, common=common, **kwargs)
         adapter = self.adapters[common]
         adapter.output, adapter.report = Path(command["output"]), report
         url = canonical_url(command["url"])
@@ -75,7 +82,8 @@ class Session:
         if command["action"] != "download":
             return summary
         item_keys = summary.get("selected_item_keys")
-        result = adapter.download(infos, command["options"], command.get("indices"), item_keys, command.get("format_ids"))
+        kwargs = {"save_mode": command["save_mode"], "folders": dict(command.get("item_folders") or {})} if command.get("save_mode") in ("by_work", "by_type") else {}
+        result = adapter.download(infos, command["options"], command.get("indices"), item_keys, command.get("format_ids"), **kwargs)
         # A cached signed resource may expire earlier than the cache's TTL.
         completed = {f["kind"] for f in result["files"]}
         pending = {kind: bool(enabled and kind not in completed) for kind, enabled in command["options"].items()}
@@ -83,7 +91,7 @@ class Session:
             report("progress", percent=-1, detail="媒体地址可能已失效，正在自动刷新一次")
             infos, refreshed = parse(force=True)
             item_keys = refreshed.get("selected_item_keys")
-            retried = adapter.download(infos, pending, command.get("indices"), item_keys, command.get("format_ids"))
+            retried = adapter.download(infos, pending, command.get("indices"), item_keys, command.get("format_ids"), **kwargs)
             result = {**retried, "files": result["files"] + retried["files"]}
             result["status"] = "partial" if result["files"] and result["errors"] else "failed" if result["errors"] else "done"
         return result

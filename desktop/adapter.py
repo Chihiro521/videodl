@@ -26,6 +26,7 @@ from videodl.videodl import VideoClient
 from .media import media_key, public_formats
 from .parsing import Parsing
 from .quality import recommended_formats
+from .output import publish_file, reserve_folder, temporary_root, unique_path
 
 
 class DesktopError(Exception):
@@ -73,31 +74,6 @@ def filename(title: str, fallback="未命名") -> str:
 def extension(value, default="mp4") -> str:
     ext = str(value or default).lower().lstrip(".")
     return ext if re.fullmatch(r"[a-z0-9]{1,8}", ext) else default
-
-
-def unique_path(path: Path) -> Path:
-    candidate = path
-    count = 1
-    while candidate.exists():
-        candidate = path.with_name(f"{path.stem} ({count}){path.suffix}")
-        count += 1
-    return candidate
-
-
-def publish_file(source: Path, target: Path) -> Path:
-    """Publish a finished file without replacing a concurrent download."""
-    while True:
-        candidate = unique_path(target)
-        try:
-            if os.name == "nt":
-                # Windows rename is atomic and refuses an existing destination.
-                os.rename(source, candidate)
-            else:
-                os.link(source, candidate)
-                source.unlink()
-            return candidate
-        except FileExistsError:
-            continue
 
 
 def cover_url(value) -> str:
@@ -160,19 +136,29 @@ class Adapter:
     failure = DesktopError
     error_text = staticmethod(download_error)
 
-    def __init__(self, output: Path, report=lambda *a, **k: None, common=True):
+    def __init__(self, output: Path, report=lambda *a, **k: None, common=True, workspace=None):
         check_contract()
         tool_environment()
         self.output = Path(output)
         self.report = report
+        self._temporary = tempfile.TemporaryDirectory(prefix="parser-", dir=temporary_root()) if workspace is None else None
+        self.workspace = Path(self._temporary.name if self._temporary else workspace)
+        self.workspace.mkdir(parents=True, exist_ok=True)
         names = list(VideoClientBuilder.REGISTERED_MODULES)
         if common:
             names += list(CommonVideoClientBuilder.REGISTERED_MODULES)
-        config = {name: {"work_dir": str(output), "disable_print": True, "max_retries": 1, "logger_handle": QuietLogger()} for name in names + ["WebMediaGrabber"]}
+        config = {name: {"work_dir": str(self.workspace), "disable_print": True, "max_retries": 1, "logger_handle": QuietLogger()} for name in names + ["WebMediaGrabber"]}
         self.client = VideoClient(allowed_video_sources=names, init_video_clients_cfg=config,
                                   requests_overrides={name: {"timeout": 18} for name in names + ["WebMediaGrabber"]})
         self.client.logger_handle = QuietLogger()
         self.parser = Parsing(self)
+
+    def close(self):
+        if self._temporary:
+            self._temporary.cleanup()
+
+    def publish(self, source, target):
+        return publish_file(source, target, staging_root=self.output.parent, report=self.report)
 
     def parse(self, url: str):
         from .storage import parse_links
@@ -267,25 +253,28 @@ class Adapter:
         client = self.source_client(item)
         # Keep upstream's regenerated HLS paths and partial files inside this
         # owned temporary directory, including on failure and audio-only jobs.
-        with tempfile.TemporaryDirectory(prefix=".media-", dir=target.parent) as scratch:
+        with tempfile.TemporaryDirectory(prefix=".media-", dir=self.workspace) as scratch:
             self.report("scratch", path=scratch)
             client.work_dir = scratch
             item.save_path = str(Path(scratch) / str(item.source) / (item.title + "." + extension(item.ext)))
             item.audio_save_path = str(Path(scratch) / str(item.source) / (item.title + ".audio." + extension(item.audio_ext, "m4a")))
             with upstream_progress(self.report):
-                downloaded = client.download(video_infos=[item], num_threadings=1, request_overrides={"timeout": 25})
+                try:
+                    downloaded = client.download(video_infos=[item], num_threadings=1, request_overrides={"timeout": 25})
+                finally:
+                    client.work_dir = str(self.workspace)
             paths = [Path(v.save_path) for v in (downloaded or []) if Path(v.save_path).is_file() and Path(v.save_path).stat().st_size]
             if not paths:
                 raise DesktopError("媒体下载未完成，请重新解析后重试。")
             actual = paths[0]
-            target = publish_file(actual, target.with_suffix(actual.suffix))
+            target = self.publish(actual, target.with_suffix(actual.suffix))
         return target
 
     def fetch_separate(self, info, target):
         ffmpeg = find_tool("ffmpeg")
         if not ffmpeg:
             raise DesktopError("此画质需要 FFmpeg 合并音视频，请使用完整发行包。")
-        with tempfile.TemporaryDirectory(prefix=".media-", dir=target.parent) as scratch:
+        with tempfile.TemporaryDirectory(prefix=".media-", dir=self.workspace) as scratch:
             self.report("scratch", path=scratch)
             root = Path(scratch)
             video_info = copy.deepcopy(info)
@@ -298,14 +287,14 @@ class Adapter:
                 "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", str(merged)], capture_output=True, timeout=7200)
             if result.returncode or not merged.is_file() or not merged.stat().st_size:
                 raise DesktopError("所选画质与音轨合并失败，请重新提取后重试。")
-            target = publish_file(merged, target.with_suffix(merged.suffix))
+            target = self.publish(merged, target.with_suffix(merged.suffix))
         return target
 
     def fetch_dash(self, info, target):
         ffmpeg = find_tool("ffmpeg")
         if not ffmpeg:
             raise DesktopError("此画质需要 FFmpeg，请使用完整发行包。")
-        with tempfile.TemporaryDirectory(prefix=".media-", dir=target.parent) as scratch:
+        with tempfile.TemporaryDirectory(prefix=".media-", dir=self.workspace) as scratch:
             self.report("scratch", path=scratch)
             temporary = Path(scratch) / (target.stem + ".mp4")
             args = [ffmpeg, "-nostdin", "-v", "error", "-n", "-rw_timeout", "25000000"]
@@ -316,7 +305,7 @@ class Adapter:
             result = subprocess.run(args, capture_output=True, timeout=7200)
             if result.returncode or not temporary.is_file() or not temporary.stat().st_size:
                 raise DesktopError("所选画质下载未完成，请重新提取后重试。")
-            target = publish_file(temporary, target.with_suffix(".mp4"))
+            target = self.publish(temporary, target.with_suffix(".mp4"))
         return target
 
     def extract_audio(self, media: Path, destination: Path) -> Path:
@@ -330,16 +319,16 @@ class Adapter:
         except (ValueError, KeyError, IndexError):
             raise DesktopError("这个媒体中没有可提取的音轨。")
         ext = {"aac": "m4a", "alac": "m4a", "mp3": "mp3", "opus": "opus", "vorbis": "ogg", "flac": "flac"}.get(codec, "wav" if codec.startswith("pcm_") else "mka")
-        with tempfile.TemporaryDirectory(prefix=".audio-", dir=destination.parent) as scratch:
+        with tempfile.TemporaryDirectory(prefix=".audio-", dir=self.workspace) as scratch:
             self.report("scratch", path=scratch)
             output = Path(scratch) / (destination.name + "." + ext)
             self.report("progress", percent=-1, detail="正在提取原始音轨")
             result = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-n", "-i", str(media), "-map", "0:a:0", "-vn", "-c:a", "copy", str(output)], capture_output=True, timeout=7200, **flags)
             if result.returncode or not output.is_file() or not output.stat().st_size:
                 raise DesktopError("音轨提取失败，请重试或保留视频文件。")
-            return publish_file(output, destination.parent / output.name)
+            return self.publish(output, destination.parent / output.name)
 
-    def download(self, infos, options, indices=None, item_keys=None, format_ids=None):
+    def download(self, infos, options, indices=None, item_keys=None, format_ids=None, save_mode="flat", folders=None):
         indexed = list(enumerate(infos))
         if item_keys is not None:
             requested = set(item_keys)
@@ -354,10 +343,39 @@ class Adapter:
             raise DesktopError("音频提取需要 FFmpeg，请使用完整发行包。")
         files, errors = [], []
         self.output.mkdir(parents=True, exist_ok=True)
+        folders = folders if folders is not None else {}
         for number, (source_index, original) in enumerate(selected, 1):
             info = self.select_format(original, (format_ids or {}).get(media_key(original, source_index)))
             title = filename(info.title)
             folder = self.output
+            created = set()
+            key = media_key(original, source_index)
+            if save_mode == "by_work":
+                name = folders.get(key, "")
+                if name and Path(name).name == name and name not in (".", ".."):
+                    folder = self.output / name
+                    if not folder.exists():
+                        folder.mkdir()
+                        created.add(folder)
+                else:
+                    folder = reserve_folder(self.output, title)
+                    created.add(folder)
+                    folders[key] = folder.name
+                self.report("destination", item_key=key, folder=folder.name)
+                if folder in created:
+                    self.report("created_folder", path=str(folder))
+
+            def destination(kind):
+                path = folder / {"video": "视频", "audio": "音频", "cover": "封面"}[kind] if save_mode == "by_type" else folder
+                if path != folder:
+                    try:
+                        path.mkdir()
+                        created.add(path)
+                        self.report("created_folder", path=str(path))
+                    except FileExistsError:
+                        if not path.is_dir():
+                            raise
+                return path
             self.report("progress", percent=-1, detail=f"正在处理 {number}/{len(selected)}：{info.title}")
             def record(path, kind):
                 entry = {"path": str(path), "kind": kind, "item_key": media_key(original, source_index),
@@ -367,35 +385,39 @@ class Adapter:
             if options.get("cover"):
                 try:
                     data, ext = self.cover_bytes(info)
-                    with tempfile.TemporaryDirectory(prefix=".media-", dir=folder) as scratch:
+                    with tempfile.TemporaryDirectory(prefix=".media-", dir=self.workspace) as scratch:
                         self.report("scratch", path=scratch)
                         temporary = Path(scratch) / f"{title}_封面.{ext}"
                         temporary.write_bytes(data)
-                        path = publish_file(temporary, folder / temporary.name)
+                        path = self.publish(temporary, destination("cover") / temporary.name)
                     record(path, "cover")
                 except Exception as exc:
                     errors.append("封面：" + download_error(exc))
             media = None
             if options.get("video"):
                 try:
-                    media = self.fetch_media(info, folder / f"{title}.{extension(info.ext)}")
+                    media = self.fetch_media(info, destination("video") / f"{title}.{extension(info.ext)}")
                     record(media, "video")
                 except Exception as exc:
                     errors.append("视频：" + download_error(exc))
             if options.get("audio"):
                 try:
                     if media:
-                        audio = self.extract_audio(media, folder / title)
+                        audio = self.extract_audio(media, destination("audio") / title)
                     elif info.audio_download_url:
-                        audio = self.fetch_media(info, folder / f"{title}.{extension(info.audio_ext, 'm4a')}", audio_only=True)
+                        audio = self.fetch_media(info, destination("audio") / f"{title}.{extension(info.audio_ext, 'm4a')}", audio_only=True)
                     else:
-                        # Upstream temporary downloads stay on the chosen disk and
-                        # are removed even when extraction fails.
-                        with tempfile.TemporaryDirectory(prefix=".audio-", dir=folder) as temp:
+                        # Intermediate video never enters the result directory.
+                        with tempfile.TemporaryDirectory(prefix=".audio-", dir=self.workspace) as temp:
                             self.report("scratch", path=temp)
                             temp_media = self.fetch_media(info, Path(temp) / f"{title}.{extension(info.ext)}")
-                            audio = self.extract_audio(temp_media, folder / title)
+                            audio = self.extract_audio(temp_media, destination("audio") / title)
                     record(audio, "audio")
                 except Exception as exc:
                     errors.append("音频：" + download_error(exc))
+            for path in created:
+                try:
+                    path.rmdir()  # Only empty folders; existing files are retained.
+                except OSError:
+                    pass
         return {"files": files, "errors": errors, "status": "partial" if files and errors else "failed" if errors else "done"}
