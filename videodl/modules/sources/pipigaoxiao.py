@@ -32,7 +32,7 @@ class PipigaoxiaoVideoClient(BaseVideoClient):
         request_overrides, video_info, null_backup_title = request_overrides or {}, VideoInfo(source=self.source), yieldtimerelatedtitle(self.source)
         # try parse
         try:
-            pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', re.S)
+            pattern = re.compile(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+")
             url = re.findall(pattern, url)[0]; headers = copy.deepcopy(self.default_headers); headers['Referer'] = url
             try: mid, pid = re.findall(r'mid=(\d+)', url, re.S)[0], re.findall(r'pid=(\d+)', url, re.S)[0]
             except: mid, pid = '', urlparse(url).path.replace("/pp/post/", "")

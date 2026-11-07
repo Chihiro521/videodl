@@ -12,7 +12,7 @@ import copy
 import hashlib
 from typing import Mapping, Any
 from ..sources import BaseVideoClient
-from ..utils.domains import platformfromurl, obtainhostname
+from ..utils.domains import platformfromurl, obtainhostname, hostmatchessuffix
 from ..utils import VideoInfo, FileTypeSniffer, RandomIPGenerator, useparseheaderscookies, legalizestring, resp2json, yieldtimerelatedtitle
 
 
@@ -38,22 +38,22 @@ class XiazaitoolVideoClient(BaseVideoClient):
     '''_detectplatform'''
     def _detectplatform(self, url: str) -> str | None:
         host = obtainhostname(url)
-        if any(x in host for x in ["bilibili.com", "b23.tv", "bili2233.cn"]): return "bilibili"
-        if "douyin.com" in host: return "douyin"
-        if "kuaishou.com" in host: return "kuaishou"
-        if "pipix.com" in host: return "pipix"
-        if any(x in host for x in ["xiaohongshu.com", "xhslink.com"]): return "xhs"
-        if "tiktok.com" in host: return "tiktok"
-        if "ixigua.com" in host: return "xigua"
-        if "weishi.qq.com" in host: return "weishi"
-        if "weibo.com" in host: return "weibo"
-        if any(x in host for x in ["jd.com", "3.cn"]): return "jingdong"
-        if any(x in host for x in ["youtube.com", "youtu.be"]): return "youtube"
-        if any(x in host for x in ["hao123.com", "haokan.baidu.com"]): return "haokan"
-        if any(x in host for x in ["facebook.com", "fb.watch"]): return "facebook"
-        if any(x in host for x in ["twitter.com", "x.com"]): return "twitter"
-        if "instagram.com" in host: return "instagram"
-        if "toutiao.com" in host: return "toutiao"
+        if hostmatchessuffix(host, {"bilibili.com", "b23.tv", "bili2233.cn"}): return "bilibili"
+        if hostmatchessuffix(host, {"douyin.com"}): return "douyin"
+        if hostmatchessuffix(host, {"kuaishou.com"}): return "kuaishou"
+        if hostmatchessuffix(host, {"pipix.com"}): return "pipix"
+        if hostmatchessuffix(host, {"xiaohongshu.com", "xhslink.com"}): return "xhs"
+        if hostmatchessuffix(host, {"tiktok.com"}): return "tiktok"
+        if hostmatchessuffix(host, {"ixigua.com"}): return "xigua"
+        if hostmatchessuffix(host, {"weishi.qq.com"}): return "weishi"
+        if hostmatchessuffix(host, {"weibo.com"}): return "weibo"
+        if hostmatchessuffix(host, {"jd.com", "3.cn"}): return "jingdong"
+        if hostmatchessuffix(host, {"youtube.com", "youtu.be"}): return "youtube"
+        if hostmatchessuffix(host, {"hao123.com", "haokan.baidu.com"}): return "haokan"
+        if hostmatchessuffix(host, {"facebook.com", "fb.watch"}): return "facebook"
+        if hostmatchessuffix(host, {"twitter.com", "x.com"}): return "twitter"
+        if hostmatchessuffix(host, {"instagram.com"}): return "instagram"
+        if hostmatchessuffix(host, {"toutiao.com"}): return "toutiao"
         return platformfromurl(url=url)
     '''parsefromurl'''
     @useparseheaderscookies
