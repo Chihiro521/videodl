@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from videodl.modules.common import qingting, snapwc, xiazaitool
-from videodl.modules.sources import cctv, pipigaoxiao, rednote, xinpianchang, youtube
+from videodl.modules.sources import cctv, iqiyi, pipigaoxiao, rednote, xinpianchang, youtube
 
 
 def json_response(payload):
@@ -241,6 +241,100 @@ def test_snapwc_generates_matching_2048_bit_client_keys(tmp_path):
     assert private_key.key_size == 2048
     assert public_key.key_size == 2048
     assert private_key.public_key().public_numbers() == public_key.public_numbers()
+
+
+@pytest.mark.parametrize(("channel", "subtitle", "album_cover"), [
+    (2, "Episode title", "http://cdn.test/album.jpg"),
+    ("1", "", ""),
+])
+@pytest.mark.parametrize("string_video_id", [True, False])
+def test_iqiyi_parses_public_metadata_and_manifest(tmp_path, monkeypatch, channel, subtitle, album_cover, string_video_id):
+    client = iqiyi.IQiyiVideoClient(work_dir=str(tmp_path), disable_print=True)
+    video_url = "https://www.iqiyi.com/v_sample.html"
+    tvid = "12345"
+    title = subtitle or "Video title"
+    manifest = "#EXTM3U\n#EXTINF:5,\nhttps://cdn.test/segment.ts\n#EXT-X-ENDLIST\n"
+    requested = []
+    overrides = {"timeout": 1}
+
+    def get(address, **kwargs):
+        requested.append(address)
+        assert kwargs["timeout"] == 1
+        if address == client.PLAYER_INIT_URL:
+            assert kwargs["headers"] == {"referer": video_url}
+            return json_response({"tvid": int(tvid)})
+        if address == f"https://pcw-api.iqiyi.com/video/video/baseinfo/{tvid}":
+            assert "params" not in kwargs
+            return json_response({"code": "A00000", "data": {
+                "tvId": tvid if string_video_id else int(tvid), "albumId": 67890,
+                "name": "Video title", "subtitle": subtitle, "albumName": "Album title",
+                "albumImageUrl": album_cover, "imageUrl": "http://cdn.test/video.jpg",
+                "channelId": channel, "period": "2025-12-01", "order": 3, "videoCount": 12,
+            }})
+        assert address.startswith(client.VIDEO_CONFIG_URL + "?")
+        return json_response({"data": {"program": {"video": [
+            {"bid": 300, "ff": "mp4", "m3u8": manifest},
+        ]}}})
+
+    monkeypatch.setattr(client, "get", get)
+    infos = client.parsefromurl(video_url, request_overrides=overrides)
+
+    assert len(requested) == 3
+    assert len(infos) == 1
+    info = infos[0]
+    assert not info.err_msg
+    assert info.title == title
+    assert info.cover_url == (album_cover or "http://cdn.test/video.jpg").replace("http://", "https://", 1)
+    assert info.with_valid_download_url
+    assert (tmp_path / "IQiyiVideoClient" / f"{tvid}.m3u8").read_text() == manifest
+    assert info.raw_data["title"] == "Album title"
+    assert info.raw_data["year"] == "2025"
+    assert info.raw_data["cover_id"] == 67890
+    assert info.raw_data["episode_all"] == 12
+    assert info.raw_data["type"] == ("MOV" if str(channel) == "1" else "TV")
+    assert str(info.raw_data["normal_ids"][0]["V"]) == tvid
+    assert info.raw_data["normal_ids"][0]["E"] == 3
+
+
+@pytest.mark.parametrize("payload", [
+    {"code": "A00004", "data": {}},
+    {"code": "A00000"},
+    {"code": "A00000", "data": None},
+    {"code": "A00000", "data": []},
+    {"code": "A00000", "data": {"tvId": 54321, "name": "Other video"}},
+    {"code": "A00000", "data": {"tvId": 12345}},
+])
+def test_iqiyi_rejects_unusable_public_metadata(tmp_path, monkeypatch, payload):
+    client = iqiyi.IQiyiVideoClient(work_dir=str(tmp_path), disable_print=True)
+
+    def get(address, **kwargs):
+        if address == client.PLAYER_INIT_URL:
+            return json_response({"tvid": 12345})
+        assert address == "https://pcw-api.iqiyi.com/video/video/baseinfo/12345"
+        return json_response(payload)
+
+    monkeypatch.setattr(client, "get", get)
+    assert client.parsefromurl("https://www.iqiyi.com/v_sample.html") == []
+
+
+def test_iqiyi_public_metadata_defaults_optional_fields(tmp_path, monkeypatch):
+    client = iqiyi.IQiyiVideoClient(work_dir=str(tmp_path), disable_print=True)
+    video_url = "https://www.iqiyi.com/v_sample.html"
+
+    def get(address, **kwargs):
+        if address == client.PLAYER_INIT_URL:
+            return json_response({"tvid": 12345})
+        assert address == "https://pcw-api.iqiyi.com/video/video/baseinfo/12345"
+        return json_response({"code": "A00000", "data": {"tvId": 12345, "name": "Video title"}})
+
+    monkeypatch.setattr(client, "get", get)
+    metadata = client._getvideocoverinfo(video_url, device_id="temporary-device")
+    assert metadata["title"] == "Video title"
+    assert metadata["image_url"] is None
+    assert metadata["year"] == ""
+    assert metadata["cover_id"] == 12345
+    assert metadata["episode_all"] == 1
+    assert metadata["normal_ids"] == [{"V": 12345, "E": 1, "defns": {}, "title": "Video title", "url": video_url, "referrer": video_url}]
 
 
 @pytest.mark.parametrize("page_template", [
