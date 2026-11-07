@@ -3,7 +3,7 @@ import json
 import pytest
 import requests
 
-from videodl.modules.common import qingting, xiazaitool
+from videodl.modules.common import qingting, snapwc, xiazaitool
 from videodl.modules.sources import pipigaoxiao, rednote, xinpianchang, youtube
 
 
@@ -230,3 +230,14 @@ def test_xinpianchang_stock_routing_matches_host_boundaries(tmp_path, monkeypatc
 
     assert client.parsefromurl(url, request_overrides=overrides) == [expected_parser]
     assert calls == [(expected_parser, url, overrides)]
+
+
+def test_snapwc_generates_matching_2048_bit_client_keys(tmp_path):
+    client = snapwc.SnapWCVideoClient(work_dir=str(tmp_path), disable_print=True)
+    private_pem, public_pem = client._genclientkeypair()
+    private_key = snapwc.serialization.load_pem_private_key(private_pem.encode("utf-8"), password=None)
+    public_key = snapwc.serialization.load_pem_public_key(public_pem.encode("utf-8"))
+
+    assert private_key.key_size == 2048
+    assert public_key.key_size == 2048
+    assert private_key.public_key().public_numbers() == public_key.public_numbers()
