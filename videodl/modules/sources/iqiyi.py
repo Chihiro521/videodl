@@ -29,7 +29,7 @@ class IQiyiVideoClient(BaseVideoClient):
     IQIYI_DEFN_MAP_S2I = {'dolby': 800, 'suhd': 800, 'hdr10': 800, 'uhd': 800, 'fhd': 600, 'shd': 500, 'hd': 300, 'sd': 200}
     TVID_PAT_RE = re.compile(r"\"tvid\":\s*(?P<tvid>\d+)", re.MULTILINE | re.DOTALL | re.IGNORECASE)
     PLAYER_INIT_URL = 'https://mesh.if.iqiyi.com/player/lw/lwplay/accelerator.js?apiVer=3'
-    VIDEO_COVER_PREFIX = 'https://mesh.if.iqiyi.com/tvg/v2/lw/base_info'
+    VIDEO_COVER_PREFIX = 'https://pcw-api.iqiyi.com/video/video/baseinfo'
     VIDEO_CONFIG_URL = 'https://cache.video.iqiyi.com/dash'
     APP_VERSION = '13.062.22175'
     def __init__(self, **kwargs):
@@ -47,12 +47,6 @@ class IQiyiVideoClient(BaseVideoClient):
     def _authkey(self, tm, tvid):
         giveaway = hashlib.md5("".encode('utf-8')).hexdigest()
         return hashlib.md5((giveaway + str(tm) + str(tvid)).encode('utf-8')).hexdigest()
-    '''_calcsign'''
-    def _calcsign(self, params: dict, secret_key: str = "howcuteitis"):
-        query, ks = "", sorted(params.keys())
-        for k in ks: query += (k + "=" + str(params[k])) + "&"
-        query = query[:-1]
-        return hashlib.md5((query + "&secret_key=" + secret_key).encode("utf-8")).hexdigest().upper()
     '''_generatedeviceid'''
     def _generatedeviceid(self):
         random.seed()
@@ -61,30 +55,39 @@ class IQiyiVideoClient(BaseVideoClient):
         return device_id
     '''_getvideocoverinfo'''
     def _getvideocoverinfo(self, url, device_id, request_overrides: dict = None):
-        info, req_url, request_overrides = None, IQiyiVideoClient.PLAYER_INIT_URL, request_overrides or {}
+        request_overrides = request_overrides or {}
         try:
-            (resp := self.get(req_url, headers={'referer': url}, **request_overrides)).raise_for_status(); resp.encoding = 'utf-8'
-            params = {'entity_id': (tvid := IQiyiVideoClient.TVID_PAT_RE.search(resp.text).group('tvid')), 'device_id': device_id, 'auth_cookie': '', 'pcv': IQiyiVideoClient.APP_VERSION, 'app_version': IQiyiVideoClient.APP_VERSION, 'ext': '', 'app_mode': 'standard', 'scale': 125, 'timestamp': int(time.time() * 1000), 'src': 'pca_tvg', 'os': '', 'conduit_id': ''}; params['sign'] = self._calcsign(params)
-            (resp := self.get(IQiyiVideoClient.VIDEO_COVER_PREFIX, params=params, **request_overrides)).raise_for_status(); resp.encoding = 'utf-8'
-            data = (raw_data := resp2json(resp=resp))['data']; image_url = safeextractfromdict(raw_data, ['data', 'base_data', 'image_url'], None)
-            info = {'image_url': image_url, 'url': url, 'referrer': url, 'title': data['base_data']['title'], 'year': data['base_data']['current_video_year'], 'cover_id': data['base_data']['qipu_id'], 'type': IQiyiVideoClient.VideoTypes.MOVIE if data['base_data']['album_source_type'] == '-1' else IQiyiVideoClient.VideoTypes.TV}
-            vi: dict = {'V': tvid, 'E': 1, 'defns': {}, 'url': url, 'referrer': url}; info['normal_ids'] = [vi]; info['episode_all'] = 1
-            if not (data := safeextractfromdict(data, ['template', 'tabs', 0, 'blocks', 2, 'data', 'data'], None)): return info
-            if isinstance(data, dict):
-                info['normal_ids'] = [{'V': vi['qipu_id'], 'E': ep, 'defns': {}, 'title': vi.get('subtitle') or vi.get('title'), 'url': vi.get('page_url') or ''} for ep, vi in enumerate(data['videos'], start=1)]
-            else:
-                if not (videos := [vd['videos'] for vd in data if vd['videos'] and not isinstance(vd['videos'], str)]): return info
-                videos, ep, normal_ids = videos[0], 1, []
-                if isinstance(videos, dict): vis = [vi for part, vi_lst in sorted(videos['feature_paged'].items(), key=lambda x: int(x[0].split('-')[0])) for vi in vi_lst]
-                else: vis = [vi for vd in sorted(videos, key=lambda x: int(x['title'].split('-')[0])) for vi in vd['data']]
-                for vi in vis:
-                    if 0 < vi['album_order'] != ep: ep = vi['album_order']
-                    normal_ids.append({'V': vi['qipu_id'], 'E': ep, 'defns': {}, 'title': vi.get('subtitle') or vi.get('title'), 'url': vi.get('page_url') or ''}); ep += 1
-                info['normal_ids'] = normal_ids
-            info['episode_all'] = len(info['normal_ids'])
-            info['normal_ids'] = [dic for dic in info['normal_ids'] if str(dic['V']) == str(tvid)]
-            return info
-        except: return info
+            resp = self.get(IQiyiVideoClient.PLAYER_INIT_URL, headers={'referer': url}, **request_overrides)
+            resp.raise_for_status()
+            resp.encoding = 'utf-8'
+            tvid = IQiyiVideoClient.TVID_PAT_RE.search(resp.text).group('tvid')
+            # The public metadata endpoint identifies videos by their TV ID.
+            resp = self.get(f'{IQiyiVideoClient.VIDEO_COVER_PREFIX}/{tvid}', **request_overrides)
+            resp.raise_for_status()
+            resp.encoding = 'utf-8'
+            raw_data = resp2json(resp=resp)
+            if raw_data.get('code') != 'A00000':
+                return None
+            data = raw_data['data']
+            if str(data.get('tvId')) != tvid:
+                return None
+            title = data.get('subtitle') or data.get('name')
+            if not title:
+                return None
+            image_url = data.get('albumImageUrl') or data.get('imageUrl')
+            if image_url:
+                image_url = re.sub(r'^http://', 'https://', image_url)
+            return {
+                'image_url': image_url, 'url': url, 'referrer': url,
+                'title': data.get('albumName') or data.get('name') or title,
+                'year': str(data.get('period') or data.get('publishDate') or '')[:4],
+                'cover_id': data.get('albumId') or data['tvId'],
+                'type': IQiyiVideoClient.VideoTypes.MOVIE if str(data.get('channelId')) == '1' else IQiyiVideoClient.VideoTypes.TV,
+                'episode_all': data.get('videoCount') or 1,
+                'normal_ids': [{'V': data['tvId'], 'E': data.get('order') or 1, 'defns': {}, 'title': title, 'url': url, 'referrer': url}],
+            }
+        except Exception:
+            return None
     '''_updatevideodwnldinfo'''
     def _updatevideodwnldinfo(self, vi, device_id, request_overrides: dict = None):
         tm, request_overrides = int(time.time() * 1000), request_overrides or {}
