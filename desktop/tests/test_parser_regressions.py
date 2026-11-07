@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from videodl.modules.common import qingting, xiazaitool
-from videodl.modules.sources import pipigaoxiao, rednote, youtube
+from videodl.modules.sources import pipigaoxiao, rednote, xinpianchang, youtube
 
 
 def json_response(payload):
@@ -198,3 +198,35 @@ def test_rednote_rejects_other_hosts_before_requesting(tmp_path, monkeypatch, ur
 
     monkeypatch.setattr(client, "get", get)
     assert client.parsefromurl(url) == []
+
+
+@pytest.mark.parametrize(("url", "expected_parser"), [
+    ("https://stock.xinpianchang.com/a123", "stock"),
+    ("https://cdn.stock.xinpianchang.com/a123", "stock"),
+    ("https://STOCK.XINPIANCHANG.COM.:443/a123", "stock"),
+    ("https://www.xinpianchang.com/a123", "www"),
+    ("https://notstock.xinpianchang.com/a123", "www"),
+    ("https://stock.xinpianchang.com.example.test/a123", "www"),
+    ("https://www.xinpianchang.com/a123?next=stock.xinpianchang.com", "www"),
+    ("https://stock.xinpianchang.com@www.xinpianchang.com/a123", "www"),
+    ("https://[invalid", "www"),
+    ("", "www"),
+])
+def test_xinpianchang_stock_routing_matches_host_boundaries(tmp_path, monkeypatch, url, expected_parser):
+    client = xinpianchang.XinpianchangVideoClient(work_dir=str(tmp_path), disable_print=True)
+    calls = []
+    overrides = {"timeout": 1}
+
+    def parse_stock(address, request_overrides):
+        calls.append(("stock", address, request_overrides))
+        return ["stock"]
+
+    def parse_www(address, request_overrides):
+        calls.append(("www", address, request_overrides))
+        return ["www"]
+
+    monkeypatch.setattr(client, "_parsefromurlwithstock", parse_stock)
+    monkeypatch.setattr(client, "_parsefromurlwithwww", parse_www)
+
+    assert client.parsefromurl(url, request_overrides=overrides) == [expected_parser]
+    assert calls == [(expected_parser, url, overrides)]
