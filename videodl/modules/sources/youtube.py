@@ -41,12 +41,12 @@ class YouTubeVideoClient(BaseVideoClient):
             for video_media in video_medias:
                 (resp := requests.post('https://app.ytdown.to/proxy.php', data={'url': video_media['mediaUrl']}, headers=headers, **request_overrides)).raise_for_status()
                 download_url, ext, download_url_can_be_visited = resp2json(resp=resp)['api']['fileUrl'], str(video_media['mediaExtension']).lower(), False; (stream_headers := headers.copy()).update({"Range": "bytes=0-0"})
-                with suppress(Exception): resp = None; (resp := requests.get(download_url, stream=True, headers=stream_headers, allow_redirects=True, verify=False, **request_overrides)).raise_for_status(); download_url_can_be_visited = True
+                with suppress(Exception): resp = None; (resp := requests.get(download_url, stream=True, headers=stream_headers, allow_redirects=True, **request_overrides)).raise_for_status(); download_url_can_be_visited = True
                 if hasattr(resp, 'text') and download_url_can_be_visited: break
             for audio_media in audio_medias:
                 (resp := requests.post('https://app.ytdown.to/proxy.php', data={'url': audio_media['mediaUrl']}, headers=headers, **request_overrides)).raise_for_status()
                 audio_download_url, audio_ext, audio_download_url_can_be_visited = resp2json(resp=resp)['api']['fileUrl'], str(audio_media['mediaExtension']).lower(), False; (stream_headers := headers.copy()).update({"Range": "bytes=0-0"})
-                with suppress(Exception): resp = None; (resp := requests.get(audio_download_url, stream=True, headers=stream_headers, allow_redirects=True, verify=False, **request_overrides)).raise_for_status(); audio_download_url_can_be_visited = True
+                with suppress(Exception): resp = None; (resp := requests.get(audio_download_url, stream=True, headers=stream_headers, allow_redirects=True, **request_overrides)).raise_for_status(); audio_download_url_can_be_visited = True
                 if hasattr(resp, 'text') and audio_download_url_can_be_visited: break
             if not download_url_can_be_visited or not audio_download_url_can_be_visited: return []
             video_info.update(dict(download_url=download_url, ext=ext, audio_download_url=audio_download_url, audio_ext=audio_ext, default_download_headers=headers, default_audio_download_headers=headers))
@@ -74,11 +74,11 @@ class YouTubeVideoClient(BaseVideoClient):
             audio_medias: list[dict] = sorted(audio_medias, key=lambda item: (item.get('bitrate'), float(item.get('audioSampleRate') or 0)), reverse=True)
             for video_media in video_medias:
                 download_url, ext, download_url_can_be_visited = video_media['url'], video_media['ext'], False; (stream_headers := headers.copy()).update({"Range": "bytes=0-0"})
-                with suppress(Exception): resp = None; (resp := requests.get(download_url, stream=True, headers=stream_headers, allow_redirects=True, verify=False, **request_overrides)).raise_for_status(); download_url_can_be_visited = True
+                with suppress(Exception): resp = None; (resp := requests.get(download_url, stream=True, headers=stream_headers, allow_redirects=True, **request_overrides)).raise_for_status(); download_url_can_be_visited = True
                 if hasattr(resp, 'text') and download_url_can_be_visited: break
             for audio_media in audio_medias:
                 audio_download_url, audio_ext, audio_download_url_can_be_visited = audio_media['url'], audio_media['ext'], False; (stream_headers := headers.copy()).update({"Range": "bytes=0-0"})
-                with suppress(Exception): resp = None; (resp := requests.get(audio_download_url, stream=True, headers=stream_headers, allow_redirects=True, verify=False, **request_overrides)).raise_for_status(); audio_download_url_can_be_visited = True
+                with suppress(Exception): resp = None; (resp := requests.get(audio_download_url, stream=True, headers=stream_headers, allow_redirects=True, **request_overrides)).raise_for_status(); audio_download_url_can_be_visited = True
                 if hasattr(resp, 'text') and audio_download_url_can_be_visited: break
             if not download_url_can_be_visited or not audio_download_url_can_be_visited: return []
             video_info.update(dict(download_url=download_url, ext=ext, audio_download_url=audio_download_url, audio_ext=audio_ext, default_download_headers=headers, default_audio_download_headers=headers))
