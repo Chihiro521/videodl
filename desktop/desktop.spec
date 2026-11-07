@@ -21,7 +21,7 @@ data += [(str(root / 'desktop/assets' / filename), 'desktop/assets') for filenam
 data += [(str(root / 'desktop/upstream.json'), 'desktop'), (str(work / 'build-info.json'), 'desktop')]
 tools = Path(os.environ['VIDEODL_BUILD_TOOLS'])
 for path in tools.iterdir():
-    if path.suffix.lower() in {'.exe', '.dll'} and (path.suffix.lower() != '.exe' or path.stem in {'ffmpeg', 'ffprobe'}):
+    if path.suffix.lower() in {'.exe', '.dll'} and (path.suffix.lower() != '.exe' or path.stem in {'ffmpeg', 'ffprobe', 'yt-dlp'}):
         binaries.append((str(path), 'tools'))
 hidden += ['desktop.worker', 'desktop.adapter', 'desktop.updates', 'Crypto', 'Cryptodome', 'curl_cffi', 'quickjs', 'lxml.etree']
 for p in ['Crypto', 'Cryptodome']:

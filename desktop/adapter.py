@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -74,6 +75,22 @@ def filename(title: str, fallback="未命名") -> str:
 def extension(value, default="mp4") -> str:
     ext = str(value or default).lower().lstrip(".")
     return ext if re.fullmatch(r"[a-z0-9]{1,8}", ext) else default
+
+
+def audio_extension(value, default="m4a") -> str:
+    """Infer the original audio container from a stream object or URL."""
+    subtype = str(getattr(value, "subtype", "") or getattr(value, "ext", "") or "").lower().lstrip(".")
+    mime = str(getattr(value, "mime_type", "") or getattr(value, "mime", "") or "").lower()
+    if not subtype and "/" in mime:
+        subtype = mime.split("/", 1)[1].split(";", 1)[0]
+    if not subtype:
+        try:
+            subtype = Path(urlsplit(str(value)).path).suffix.lower().lstrip(".")
+        except (TypeError, ValueError):
+            subtype = ""
+    if subtype in ("m4s", "mp4", "aac"):
+        return "m4a"
+    return subtype if re.fullmatch(r"[a-z0-9]{1,8}", subtype) else default
 
 
 def cover_url(value) -> str:
@@ -186,7 +203,7 @@ class Adapter:
         for index, info in enumerate(infos):
             url_ext = Path(urlsplit(info.download_url).path).suffix.lower().lstrip(".") if isinstance(info.download_url, str) else ""
             audio_formats = {"mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "aiff", "wma", "mka"}
-            media_kind = "audio" if url_ext in audio_formats or str(info.ext).lower() in audio_formats else "video"
+            media_kind = "audio" if getattr(info, "_desktop_music", False) or url_ext in audio_formats or str(info.ext).lower() in audio_formats else "video"
             result.append({"index": index, "title": info.title or "未命名媒体", "source": info.source,
                            "ext": info.ext, "has_cover": bool(cover_url(info.cover_url)),
                            "separate_audio": bool(info.audio_download_url), "audio_ext": info.audio_ext,
@@ -209,7 +226,7 @@ class Adapter:
                 item.audio_download_url = ""
             elif selected.get("audio_url"):
                 item.audio_download_url = selected["audio_url"]
-                item.audio_ext = "m4a"
+                item.audio_ext = audio_extension(item.audio_download_url, "m4a")
             item.default_download_headers = {**(item.default_download_headers or {}), **selected.get("headers", {})}
         return item
 
@@ -244,6 +261,24 @@ class Adapter:
             item.ext = extension(item.audio_ext, "m4a")
             item.guess_video_ext_result = item.guess_audio_ext_result
             item.download_with_ffmpeg = False
+            if getattr(item, "_desktop_direct_audio", False):
+                with tempfile.TemporaryDirectory(prefix=".audio-", dir=self.workspace) as scratch:
+                    self.report("scratch", path=scratch)
+                    temporary = Path(scratch) / (target.stem + "." + extension(item.audio_ext, "m4a"))
+                    executable = shutil.which("yt-dlp")
+                    bundled = Path(getattr(sys, "_MEIPASS", "")) / "tools" / ("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
+                    if bundled.is_file():
+                        executable = str(bundled)
+                    if not executable:
+                        raise DesktopError("Music 下载组件未找到，请使用完整发行包。")
+                    result = subprocess.run([executable, "--no-playlist", "--no-warnings", "-f",
+                        getattr(item, "_desktop_yt_format_id", "bestaudio"), "-o", str(temporary),
+                        getattr(item, "_desktop_yt_url", item.download_url)], capture_output=True, timeout=7200)
+                    if result.returncode:
+                        raise DesktopError("Music 音频流下载失败，请重新解析后重试。")
+                    if not temporary.is_file() or not temporary.stat().st_size:
+                        raise DesktopError("音乐下载没有返回有效文件，请重新解析后重试。")
+                    return self.publish(temporary, target.with_suffix(temporary.suffix))
         if audio_only:
             item.audio_download_url = ""
         if not audio_only and getattr(item, "_desktop_map", None):

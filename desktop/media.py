@@ -10,9 +10,16 @@ from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 
 def canonical_url(url):
+    # Some chat and Markdown clients preserve escaped query separators.
+    url = url.replace("\\&", "&")
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
     query = parse_qs(parts.query)
+    if host == "music.youtube.com":
+        video_id = query.get("v", [""])[0]
+        if re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+            return "https://www.youtube.com/watch?" + urlencode({"v": video_id})
+        return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path, parts.query, ""))
     if host in ("douyin.com", "iesdouyin.com") or host.endswith(".douyin.com") or host.endswith(".iesdouyin.com"):
         video_id = next((v for v in query.get("modal_id", []) if v.isdigit()), "")
         match = re.search(r"/(?:share/)?video/(\d+)", parts.path)

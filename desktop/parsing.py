@@ -2,14 +2,20 @@
 
 import html
 import json
+import os
 import re
+import shutil
+import subprocess
+import sys
 import time
+from pathlib import Path
 from urllib.parse import urlsplit, urljoin
 from xml.etree import ElementTree as ET
 
 import requests
 
 from .media import canonical_url, fallback_title, normalize_formats, raw_formats
+from .youtube_music import YouTubeMusicAdapter
 
 
 class Parsing:
@@ -29,6 +35,12 @@ class Parsing:
     def parse(self, url):
         self.deadline = time.monotonic() + 58
         adapter = self.adapter
+        music_url = YouTubeMusicAdapter.is_url(url)
+        if music_url:
+            normalized = YouTubeMusicAdapter.normalize(url)
+            if not normalized:
+                raise adapter.failure("目前支持 YouTube Music 单曲链接，请使用包含 v=视频编号的歌曲地址。")
+            url = normalized
         url = canonical_url(url)
         host = urlsplit(url).hostname or ""
         if host in ("v.douyin.com", "b23.tv"):
@@ -64,6 +76,8 @@ class Parsing:
                 infos = self.attempt(name, url, errors)
                 if infos:
                     break
+        if not infos and music_url and time.monotonic() < self.deadline:
+            infos = self.youtube_music_fallback(url, errors)
         if not infos:
             names = sorted(adapter.client.common_video_clients)
             preferred = self.preferred.get(host)
@@ -76,14 +90,46 @@ class Parsing:
                 if infos:
                     self.preferred[host] = name
                     break
+        if not infos and music_url and time.monotonic() < self.deadline:
+            infos = self.youtube_music_fallback(url, errors)
         if not infos and time.monotonic() < self.deadline:
             # Existing headless automatic grabber; no interactive browser path.
             infos = self.attempt("WebMediaGrabber", url, errors)
         if not infos:
             reason = errors[-1] if errors else "来源未返回可用媒体。"
             raise adapter.failure("没有解析到可下载内容：" + reason)
+        if music_url:
+            for info in infos:
+                YouTubeMusicAdapter.mark_track(info)
         self.enrich(infos, url)
         return infos
+
+    def youtube_music_fallback(self, url, errors):
+        bundled = Path(getattr(sys, "_MEIPASS", "")) / "tools" / ("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
+        executable = str(bundled) if bundled.is_file() else shutil.which("yt-dlp")
+        if not executable:
+            return []
+        try:
+            result = subprocess.run([executable, "--no-playlist", "--no-warnings", "-J", "--skip-download", url],
+                                    capture_output=True, text=True, timeout=max(8, min(30, self.deadline - time.monotonic())), check=True)
+            data = json.loads(result.stdout)
+            formats = [item for item in data.get("formats", []) if item.get("url") and item.get("vcodec") == "none" and item.get("acodec") not in (None, "none")]
+            selected = max(formats, key=lambda item: (item.get("abr") or 0, item.get("filesize") or 0), default=None)
+            if not selected:
+                return []
+            info = self.adapter.new_info(source="YouTubeVideoClient", title=data.get("title") or "未命名媒体",
+                download_url=selected["url"], audio_download_url=selected["url"], ext=selected.get("ext") or "webm",
+                audio_ext=selected.get("audio_ext") or selected.get("ext") or "webm", cover_url=data.get("thumbnail") or "")
+            info.default_download_headers = selected.get("http_headers") or {}
+            info.default_audio_download_headers = info.default_download_headers
+            info._desktop_yt_format_id = selected.get("format_id") or "bestaudio"
+            info._desktop_yt_url = url
+            info._desktop_formats = []
+            info._desktop_direct_audio = True
+            return [info]
+        except (OSError, ValueError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+            errors.append(self.adapter.error_text(exc))
+            return []
 
     def attempt(self, name, url, errors):
         adapter = self.adapter

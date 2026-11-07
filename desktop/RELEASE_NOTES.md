@@ -1,4 +1,8 @@
-# VideoDL Desktop 0.5.2
+# VideoDL Desktop 0.5.3
+
+## YouTube Music 单曲适配
+
+增加桌面侧 YouTube Music 适配器。`music.youtube.com/watch?v=...` 会转换为上游 YouTube 客户端可识别的标准视频地址，结果在界面中作为音频显示，并沿用原始音轨、标题、封面和现有保存方式。播放列表地址暂按单曲链接处理，需逐条添加。
 
 窗口底部新增“保存方式”，单条与批量下载都可选择：
 
