@@ -3,8 +3,8 @@ import json
 import pytest
 import requests
 
-from videodl.modules.common import qingting, xiazaitool
-from videodl.modules.sources import pipigaoxiao, youtube
+from videodl.modules.common import qingting, snapwc, xiazaitool
+from videodl.modules.sources import pipigaoxiao, rednote, xinpianchang, youtube
 
 
 def json_response(payload):
@@ -148,3 +148,96 @@ def test_pipigaoxiao_extracts_complete_url_without_extra_delimiters(tmp_path, mo
     assert requested[0]["headers"]["Referer"] == url
     assert json.loads(requested[0]["data"])["pid"] == 123
     assert infos[0].download_url == "https://cdn.test/sample.mp4"
+
+
+@pytest.mark.parametrize(("url", "resolve_short_link", "identifier"), [
+    ("http://xhslink.com/short", True, "note-id"),
+    ("http://xhslink.com:80/short", True, "note-id"),
+    ("HTTP://XHSLINK.COM/short", True, "note-id"),
+    ("http://xhslink.com./short", True, "note-id"),
+    ("https://xhslink.com/short", False, "short"),
+    ("https://www.xiaohongshu.com/explore/note-id?next=http://xhslink.com", False, "note-id"),
+    ("http://www.xiaohongshu.com/explore/note-id", False, "note-id"),
+    ("http://xhslink.com.example.xhslink.com/short", False, "short"),
+])
+def test_rednote_short_link_resolution_uses_scheme_and_hostname(tmp_path, monkeypatch, url, resolve_short_link, identifier):
+    client = rednote.RednoteVideoClient(work_dir=str(tmp_path), disable_print=True)
+    resolved_url = "https://www.xiaohongshu.com/explore/note-id"
+    requested = []
+    raw = {"masterUrl": "https://cdn.test/sample.mp4", "title": "Sample",
+        "imageList": [{"urlDefault": "https://cdn.test/cover.png"}]}
+
+    def get(address, **kwargs):
+        requested.append((address, kwargs))
+        response = json_response({})
+        response.url = resolved_url
+        response._content = ("<script>window.__INITIAL_STATE__ = " + json.dumps(raw)
+            + "</script></body></html>").encode("utf-8")
+        return response
+
+    monkeypatch.setattr(client, "get", get)
+    monkeypatch.setattr(rednote.FileTypeSniffer, "getfileextensionfromurl", lambda **kwargs: {"ext": "mp4"})
+    infos = client.parsefromurl(url)
+
+    assert len(requested) == (2 if resolve_short_link else 1)
+    assert requested[0][0] == url
+    assert requested[0][1].get("allow_redirects", False) == resolve_short_link
+    assert infos[0].identifier == identifier
+    assert infos[0].download_url == "https://cdn.test/sample.mp4"
+
+
+@pytest.mark.parametrize("url", [
+    "http://xhslink.com.example.test/short",
+    "http://xhslink.com@example.test/short",
+])
+def test_rednote_rejects_other_hosts_before_requesting(tmp_path, monkeypatch, url):
+    client = rednote.RednoteVideoClient(work_dir=str(tmp_path), disable_print=True)
+
+    def get(*args, **kwargs):
+        pytest.fail("an unsupported host reached the request layer")
+
+    monkeypatch.setattr(client, "get", get)
+    assert client.parsefromurl(url) == []
+
+
+@pytest.mark.parametrize(("url", "expected_parser"), [
+    ("https://stock.xinpianchang.com/a123", "stock"),
+    ("https://cdn.stock.xinpianchang.com/a123", "stock"),
+    ("https://STOCK.XINPIANCHANG.COM.:443/a123", "stock"),
+    ("https://www.xinpianchang.com/a123", "www"),
+    ("https://notstock.xinpianchang.com/a123", "www"),
+    ("https://stock.xinpianchang.com.example.test/a123", "www"),
+    ("https://www.xinpianchang.com/a123?next=stock.xinpianchang.com", "www"),
+    ("https://stock.xinpianchang.com@www.xinpianchang.com/a123", "www"),
+    ("https://[invalid", "www"),
+    ("", "www"),
+])
+def test_xinpianchang_stock_routing_matches_host_boundaries(tmp_path, monkeypatch, url, expected_parser):
+    client = xinpianchang.XinpianchangVideoClient(work_dir=str(tmp_path), disable_print=True)
+    calls = []
+    overrides = {"timeout": 1}
+
+    def parse_stock(address, request_overrides):
+        calls.append(("stock", address, request_overrides))
+        return ["stock"]
+
+    def parse_www(address, request_overrides):
+        calls.append(("www", address, request_overrides))
+        return ["www"]
+
+    monkeypatch.setattr(client, "_parsefromurlwithstock", parse_stock)
+    monkeypatch.setattr(client, "_parsefromurlwithwww", parse_www)
+
+    assert client.parsefromurl(url, request_overrides=overrides) == [expected_parser]
+    assert calls == [(expected_parser, url, overrides)]
+
+
+def test_snapwc_generates_matching_2048_bit_client_keys(tmp_path):
+    client = snapwc.SnapWCVideoClient(work_dir=str(tmp_path), disable_print=True)
+    private_pem, public_pem = client._genclientkeypair()
+    private_key = snapwc.serialization.load_pem_private_key(private_pem.encode("utf-8"), password=None)
+    public_key = snapwc.serialization.load_pem_public_key(public_pem.encode("utf-8"))
+
+    assert private_key.key_size == 2048
+    assert public_key.key_size == 2048
+    assert private_key.public_key().public_numbers() == public_key.public_numbers()
