@@ -49,9 +49,9 @@ class SnapWCVideoClient(BaseVideoClient):
     def _sha256bytesofstring(self, s: str) -> bytes:
         h = hashes.Hash(hashes.SHA256()); h.update(s.encode("utf-8"))
         return h.finalize()
-    '''_genclientkeypair1024'''
-    def _genclientkeypair1024(self):
-        priv = rsa.generate_private_key(public_exponent=65537, key_size=1024)
+    '''_genclientkeypair'''
+    def _genclientkeypair(self):
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         priv_pem = priv.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode("utf-8")
         pub_pem = priv.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode("utf-8")
         return priv_pem, pub_pem
@@ -98,7 +98,7 @@ class SnapWCVideoClient(BaseVideoClient):
             self.post('https://api.snapwc.com/api.event/log', headers=headers, json={"name": "frontend_parse_submit_started", "data": event2_data, "channel": "frontend_debug"}, **request_overrides)
             self.post('https://api.snapwc.com/api.captcha/is_required', headers=headers, json={"scenario": "parser", "data": {"url": url}}, **request_overrides)
             # --post request
-            client_priv_pem, client_pub_pem = self._genclientkeypair1024()
+            client_priv_pem, client_pub_pem = self._genclientkeypair()
             req_body = self._encryptrequest({"url": url}, self.SERVER_PUBLIC_PEM, client_pub_pem)
             (resp := self.post(f'https://api.snapwc.com/api.parser/parse', headers=headers, json=req_body, **request_overrides)).raise_for_status()
             video_info.update(dict(raw_data=(raw_data := self._decryptresponse(resp2json(resp=resp), client_priv_pem))))

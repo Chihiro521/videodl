@@ -45,6 +45,8 @@ class KuKuToolVideoClient(BaseVideoClient):
         return self._uwx_id
     '''_aesgcmencrypt'''
     def _aesgcmencrypt(self, params: dict, auth_key: str, auth_seed: str):
+        # The auth endpoint supplies protocol key material for this AES-GCM key.
+        # Its wire format requires the SHA-256 digest of auth_key and auth_seed.
         key_bytes, iv_bytes = hashlib.sha256(f'{auth_key}:{auth_seed}'.encode('utf-8')).digest(), os.urandom(12)
         plain_bytes = json.dumps(params, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
         cipher = AES.new(key_bytes, AES.MODE_GCM, nonce=iv_bytes)

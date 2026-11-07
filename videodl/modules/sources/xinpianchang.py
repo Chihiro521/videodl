@@ -12,7 +12,7 @@ import json_repair
 from bs4 import BeautifulSoup
 from .base import BaseVideoClient
 from urllib.parse import urlparse
-from ..utils.domains import obtainhostname
+from ..utils.domains import obtainhostname, hostmatchessuffix
 from ..utils import legalizestring, resp2json, useparseheaderscookies, yieldtimerelatedtitle, safeextractfromdict, FileTypeSniffer, VideoInfo, DrissionPageUtils
 
 
@@ -79,8 +79,9 @@ class XinpianchangVideoClient(BaseVideoClient):
     '''parsefromurl'''
     @useparseheaderscookies
     def parsefromurl(self, url: str, request_overrides: dict = None) -> list[VideoInfo]:
-        video_infos = (self._parsefromurlwithstock if ('stock.xinpianchang.com' in obtainhostname(url)) else self._parsefromurlwithwww)(url, request_overrides)
-        return video_infos
+        if hostmatchessuffix(obtainhostname(url), {'stock.xinpianchang.com'}):
+            return self._parsefromurlwithstock(url, request_overrides)
+        return self._parsefromurlwithwww(url, request_overrides)
     '''belongto'''
     @staticmethod
     def belongto(url: str, valid_domains: list[str] | set[str] = None):
