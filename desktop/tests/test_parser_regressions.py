@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from videodl.modules.common import qingting, xiazaitool
-from videodl.modules.sources import pipigaoxiao, youtube
+from videodl.modules.sources import pipigaoxiao, rednote, youtube
 
 
 def json_response(payload):
@@ -148,3 +148,53 @@ def test_pipigaoxiao_extracts_complete_url_without_extra_delimiters(tmp_path, mo
     assert requested[0]["headers"]["Referer"] == url
     assert json.loads(requested[0]["data"])["pid"] == 123
     assert infos[0].download_url == "https://cdn.test/sample.mp4"
+
+
+@pytest.mark.parametrize(("url", "resolve_short_link", "identifier"), [
+    ("http://xhslink.com/short", True, "note-id"),
+    ("http://xhslink.com:80/short", True, "note-id"),
+    ("HTTP://XHSLINK.COM/short", True, "note-id"),
+    ("http://xhslink.com./short", True, "note-id"),
+    ("https://xhslink.com/short", False, "short"),
+    ("https://www.xiaohongshu.com/explore/note-id?next=http://xhslink.com", False, "note-id"),
+    ("http://www.xiaohongshu.com/explore/note-id", False, "note-id"),
+    ("http://xhslink.com.example.xhslink.com/short", False, "short"),
+])
+def test_rednote_short_link_resolution_uses_scheme_and_hostname(tmp_path, monkeypatch, url, resolve_short_link, identifier):
+    client = rednote.RednoteVideoClient(work_dir=str(tmp_path), disable_print=True)
+    resolved_url = "https://www.xiaohongshu.com/explore/note-id"
+    requested = []
+    raw = {"masterUrl": "https://cdn.test/sample.mp4", "title": "Sample",
+        "imageList": [{"urlDefault": "https://cdn.test/cover.png"}]}
+
+    def get(address, **kwargs):
+        requested.append((address, kwargs))
+        response = json_response({})
+        response.url = resolved_url
+        response._content = ("<script>window.__INITIAL_STATE__ = " + json.dumps(raw)
+            + "</script></body></html>").encode("utf-8")
+        return response
+
+    monkeypatch.setattr(client, "get", get)
+    monkeypatch.setattr(rednote.FileTypeSniffer, "getfileextensionfromurl", lambda **kwargs: {"ext": "mp4"})
+    infos = client.parsefromurl(url)
+
+    assert len(requested) == (2 if resolve_short_link else 1)
+    assert requested[0][0] == url
+    assert requested[0][1].get("allow_redirects", False) == resolve_short_link
+    assert infos[0].identifier == identifier
+    assert infos[0].download_url == "https://cdn.test/sample.mp4"
+
+
+@pytest.mark.parametrize("url", [
+    "http://xhslink.com.example.test/short",
+    "http://xhslink.com@example.test/short",
+])
+def test_rednote_rejects_other_hosts_before_requesting(tmp_path, monkeypatch, url):
+    client = rednote.RednoteVideoClient(work_dir=str(tmp_path), disable_print=True)
+
+    def get(*args, **kwargs):
+        pytest.fail("an unsupported host reached the request layer")
+
+    monkeypatch.setattr(client, "get", get)
+    assert client.parsefromurl(url) == []

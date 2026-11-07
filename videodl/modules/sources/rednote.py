@@ -11,6 +11,7 @@ import re
 import json_repair
 from urllib.parse import urlparse
 from .base import BaseVideoClient
+from ..utils.domains import obtainhostname
 from ..utils import legalizestring, useparseheaderscookies, searchdictbykey, yieldtimerelatedtitle, FileTypeSniffer, VideoInfo
 
 
@@ -31,7 +32,8 @@ class RednoteVideoClient(BaseVideoClient):
         request_overrides, video_info, null_backup_title = request_overrides or {}, VideoInfo(source=self.source), yieldtimerelatedtitle(self.source)
         # try parse
         try:
-            if url.startswith('http://xhslink.com'): url = self.get(url, allow_redirects=True, **request_overrides).url
+            if urlparse(url).scheme == 'http' and obtainhostname(url) == 'xhslink.com':
+                url = self.get(url, allow_redirects=True, **request_overrides).url
             vid = urlparse(url).path.strip('/').split('/')[-1]; (resp := self.get(url, **request_overrides)).raise_for_status()
             video_info.update(dict(raw_data=(raw_data := json_repair.loads(re.findall(r"window\.__INITIAL_STATE__\s*=\s*(.*?)</script></body></html>", resp.text)[0]))))
             if not (download_url := searchdictbykey(raw_data, "masterUrl")): download_url = searchdictbykey(raw_data, "backupUrls")
