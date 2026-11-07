@@ -13,7 +13,7 @@ import random
 import string
 import hashlib
 from ..sources import BaseVideoClient
-from ..utils.domains import platformfromurl
+from ..utils.domains import platformfromurl, obtainhostname, hostmatchessuffix
 from ..utils import VideoInfo, FileTypeSniffer, RandomIPGenerator, useparseheaderscookies, legalizestring, resp2json, yieldtimerelatedtitle, safeextractfromdict
 
 
@@ -46,10 +46,11 @@ class QingtingVideoClient(BaseVideoClient):
         try:
             # --get request
             headers = copy.deepcopy(self.default_headers); RandomIPGenerator().addrandomipv4toheaders(headers); headers.update(self._make33toolheaders())
-            if "douyin.com" in url: (resp := self.get('https://api.33tool.com/api/parse/douyin', params={"url": url}, headers=headers, **request_overrides)).raise_for_status()
-            elif "bilibili.com" in url or "b23.tv" in url: (resp := self.get('https://api.33tool.com/api/parse/bilibili', params={"url": url}, headers=headers, **request_overrides)).raise_for_status()
-            elif "xiaohongshu.com" in url or "xhslink.com" in url: (resp := self.get('https://api.33tool.com/api/parse/redbook', params={"url": url}, headers=headers, **request_overrides)).raise_for_status()
-            elif "kuaishou.com" in url: (resp := self.get('https://api.33tool.com/api/parse/kuaishou', params={"url": url}, headers=headers, **request_overrides)).raise_for_status()
+            host = obtainhostname(url)
+            if hostmatchessuffix(host, {"douyin.com"}): (resp := self.get('https://api.33tool.com/api/parse/douyin', params={"url": url}, headers=headers, **request_overrides)).raise_for_status()
+            elif hostmatchessuffix(host, {"bilibili.com", "b23.tv"}): (resp := self.get('https://api.33tool.com/api/parse/bilibili', params={"url": url}, headers=headers, **request_overrides)).raise_for_status()
+            elif hostmatchessuffix(host, {"xiaohongshu.com", "xhslink.com"}): (resp := self.get('https://api.33tool.com/api/parse/redbook', params={"url": url}, headers=headers, **request_overrides)).raise_for_status()
+            elif hostmatchessuffix(host, {"kuaishou.com"}): (resp := self.get('https://api.33tool.com/api/parse/kuaishou', params={"url": url}, headers=headers, **request_overrides)).raise_for_status()
             else: raise NotImplementedError(f"{self.source} can only parse 'douyin', 'bilibili', 'xiaohongshu' and 'kuaishou'")
             video_info.update(dict(raw_data=(raw_data := resp2json(resp=resp))))
             if raw_data.get('code') != 0: raise ValueError(raw_data)
