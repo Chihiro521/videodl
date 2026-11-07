@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from videodl.modules.common import qingting, snapwc, xiazaitool
-from videodl.modules.sources import pipigaoxiao, rednote, xinpianchang, youtube
+from videodl.modules.sources import cctv, pipigaoxiao, rednote, xinpianchang, youtube
 
 
 def json_response(payload):
@@ -241,3 +241,51 @@ def test_snapwc_generates_matching_2048_bit_client_keys(tmp_path):
     assert private_key.key_size == 2048
     assert public_key.key_size == 2048
     assert private_key.public_key().public_numbers() == public_key.public_numbers()
+
+
+@pytest.mark.parametrize("page_template", [
+    'var guid = "{pid}"',
+    'videoCenterId: "{pid}"',
+    'changePlayer("{pid}")',
+    'loadVideo("{pid}")',
+    'var initMyAray = "{pid}"',
+    'var ids = ["{pid}"]',
+])
+@pytest.mark.parametrize("nested_manifest", [True, False])
+def test_cctv_metadata_request_uses_the_public_video_id(tmp_path, monkeypatch, page_template, nested_manifest):
+    client = cctv.CCTVVideoClient(work_dir=str(tmp_path), disable_print=True)
+    page_url = "https://tv.cctv.com/2026/11/07/sample.shtml"
+    pid = "00112233445566778899aabbccddeeff"
+    manifest_url = "https://cdn.test/master.m3u8"
+    media_url = "https://cdn.test/1080.m3u8"
+    metadata_params = []
+
+    def get(address, **kwargs):
+        if address == page_url:
+            response = json_response({})
+            response._content = page_template.format(pid=pid).encode("utf-8")
+            return response
+        if address == "https://vdn.apps.cntv.cn/api/getHttpVideoInfo.do":
+            metadata_params.append(kwargs["params"])
+            metadata = {"title": "Sample"}
+            if nested_manifest:
+                metadata["manifest"] = {"hls_url": manifest_url}
+            else:
+                metadata["hls_url"] = manifest_url
+            return json_response(metadata)
+        assert address == manifest_url
+        response = json_response({})
+        response._content = ("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1920x1080\n"
+            + media_url + "\n").encode("utf-8")
+        return response
+
+    monkeypatch.setattr(client, "get", get)
+    monkeypatch.setattr(cctv.FileTypeSniffer, "getfileextensionfromurl", lambda **kwargs: {"ext": "mp4"})
+    infos = client.parsefromurl(page_url)
+
+    assert len(metadata_params) == 1
+    assert set(metadata_params[0]) == {"pid"}
+    assert metadata_params[0]["pid"] == pid
+    assert infos[0].identifier == pid
+    assert infos[0].title == "Sample"
+    assert infos[0].download_url == media_url
