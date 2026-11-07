@@ -3,7 +3,7 @@ import json
 import pytest
 import requests
 
-from videodl.modules.common import qingting, snapwc, xiazaitool
+from videodl.modules.common import pv, qingting, snapwc, xiazaitool
 from videodl.modules.sources import cctv, iqiyi, pipigaoxiao, rednote, xinpianchang, youtube
 
 
@@ -241,6 +241,89 @@ def test_snapwc_generates_matching_2048_bit_client_keys(tmp_path):
     assert private_key.key_size == 2048
     assert public_key.key_size == 2048
     assert private_key.public_key().public_numbers() == public_key.public_numbers()
+
+
+@pytest.mark.parametrize("source_url", [
+    "https://www.bilibili.com/video/BVsample?label=中文&next=a%2Bb",
+    "https://www.facebook.com/example/videos/123",
+    "https://www.ted.com/talks/example",
+])
+@pytest.mark.parametrize("with_audio", [True, False])
+@pytest.mark.parametrize("title", ["Sample video", None])
+def test_pv_uses_the_public_form_and_json_protocol(tmp_path, monkeypatch, source_url, with_audio, title):
+    from types import SimpleNamespace
+    from urllib.parse import parse_qs, urlsplit
+
+    client = pv.PVVideoClient(work_dir=str(tmp_path), disable_print=True)
+    video_url = "https://cdn.test/video.mp4"
+    audio_url = "https://cdn.test/audio.m4s"
+    requested = []
+    overrides = {"timeout": 1}
+
+    def get(address, **kwargs):
+        assert address == "https://www.parsevideo.com/"
+        assert kwargs == overrides
+        requested.append("GET")
+        response = json_response({})
+        response.cookies.set("session", "anonymous-test-session")
+        return response
+
+    def post(address, **kwargs):
+        target = urlsplit(address)
+        assert target.scheme == "https"
+        assert target.netloc == "www.parsevideo.com"
+        assert target.path == "/parsevideo/api.html"
+        assert set(parse_qs(target.query)) == {"hash", "timestamp"}
+        assert parse_qs(target.query)["timestamp"] == ["1234000"]
+        assert parse_qs(kwargs.pop("data")) == {"url": [source_url], "proxyip": ["on"]}
+        assert kwargs == overrides
+        assert client.default_cookies["session"] == "anonymous-test-session"
+        requested.append("POST")
+        formats = [
+            {"url": "https://cdn.test/low.mp4", "vcodec": "avc1", "acodec": "none", "height": 360},
+            {"url": video_url, "vcodec": "avc1", "acodec": "none", "height": 1080},
+        ]
+        if with_audio:
+            formats.append({"url": audio_url, "vcodec": "none", "acodec": "mp4a", "abr": 128})
+        return json_response({"title": title, "formats": formats})
+
+    monkeypatch.setattr(pv, "time", SimpleNamespace(time=lambda: 1234))
+    monkeypatch.setattr(client, "get", get)
+    monkeypatch.setattr(client, "post", post)
+    monkeypatch.setattr(pv.FileTypeSniffer, "getfileextensionfromurl", lambda **kwargs: {"ext": "m4s" if kwargs["url"] == audio_url else "mp4"})
+    infos = client.parsefromurl(source_url, request_overrides=overrides)
+
+    assert requested == ["GET", "POST"]
+    assert len(infos) == 1
+    info = infos[0]
+    assert not info.err_msg
+    assert info.download_url == video_url
+    assert bool(info.title)
+    if title:
+        assert info.title == title
+    assert info.ext == ("mkv" if "facebook.com" in source_url else "mp4")
+    assert info.audio_download_url == (audio_url if with_audio else "")
+    if with_audio:
+        assert info.audio_ext == "m4a"
+    if "bilibili.com" in source_url:
+        assert info.default_download_headers == client.BILIBILI_REFERENCE_HEADERS
+    if "ted.com" in source_url:
+        assert info.download_with_ffmpeg
+
+
+@pytest.mark.parametrize("payload", [
+    {"code": 0, "msg": "No result"},
+    {"title": "Sample", "formats": []},
+])
+def test_pv_public_json_errors_return_an_invalid_result(tmp_path, monkeypatch, payload):
+    client = pv.PVVideoClient(work_dir=str(tmp_path), disable_print=True)
+    monkeypatch.setattr(client, "get", lambda *args, **kwargs: json_response({}))
+    monkeypatch.setattr(client, "post", lambda *args, **kwargs: json_response(payload))
+
+    infos = client.parsefromurl("https://www.bilibili.com/video/BVsample")
+    assert len(infos) == 1
+    assert infos[0].err_msg
+    assert not infos[0].with_valid_download_url
 
 
 @pytest.mark.parametrize(("channel", "subtitle", "album_cover"), [
