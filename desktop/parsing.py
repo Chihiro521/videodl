@@ -207,6 +207,7 @@ class Parsing:
         return infos
 
     def enrich(self, infos, url):
+        host = (urlsplit(url).hostname or "").rstrip(".")
         for index, info in enumerate(infos):
             info._desktop_url = url
             info._desktop_single = len(infos) == 1
@@ -246,7 +247,11 @@ class Parsing:
                 title = self.raw_title(info.raw_data)
                 if not title and time.monotonic() < self.deadline - 2:
                     try:
-                        title = self.html_title(getattr(self, "page_html", "") if "douyin.com" in url else self.get(url).text)
+                        title = self.html_title(
+                            getattr(self, "page_html", "")
+                            if host == "douyin.com" or host.endswith(".douyin.com")
+                            else self.get(url).text
+                        )
                     except requests.RequestException:
                         pass
                 info.title = title or f"{urlsplit(url).hostname or '视频'}_{urlsplit(url).path.rstrip('/').rsplit('/',1)[-1] or index + 1}"

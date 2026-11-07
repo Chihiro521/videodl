@@ -1,6 +1,7 @@
 import copy
 import json
 import subprocess
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -46,6 +47,41 @@ def test_intermediate_generation_jobs_are_not_download_options(tmp_path):
     formats = info._desktop_formats
     assert len(formats) == 1
     assert formats[0]["url"] == "https://cdn.test/actual.mp4"
+
+
+@pytest.mark.parametrize(("url", "use_cached_title"), [
+    ("https://douyin.com/video/123", True),
+    ("https://www.douyin.com/video/123", True),
+    ("https://v.douyin.com/short", True),
+    ("https://WWW.DOUYIN.COM:443/video/123", True),
+    ("https://www.douyin.com./video/123", True),
+    ("https://www.douyin.com.example.test/video/123", False),
+    ("https://notdouyin.com/video/123", False),
+    ("https://example.test/douyin.com/video/123", False),
+    ("https://example.test/?next=https://www.douyin.com/video/123", False),
+    ("https://douyin.com@example.test/video/123", False),
+    ("https://example.test/#douyin.com", False),
+    ("https://example.test/video/123", False),
+])
+def test_title_fallback_uses_cached_html_only_for_douyin_hosts(tmp_path, monkeypatch, url, use_cached_title):
+    adapter = Adapter(tmp_path, common=False)
+    info = adapter.new_info(source="WebMediaGrabber", title="", identifier="asset", raw_data={},
+        download_url="https://cdn.test/sample.mp4")
+    info._desktop_formats = [{"resolution": 720}]
+    parser = adapter.parser
+    parser.deadline = time.monotonic() + 30
+    parser.page_html = '<meta property="og:title" content="Cached title">'
+    requested_urls = []
+
+    def get_page(requested_url, **kwargs):
+        requested_urls.append(requested_url)
+        return SimpleNamespace(text='<meta property="og:title" content="Fetched title">')
+
+    monkeypatch.setattr(parser, "get", get_page)
+    parser.enrich([info], url)
+
+    assert info.title == ("Cached title" if use_cached_title else "Fetched title")
+    assert requested_urls == ([] if use_cached_title else [url])
 
 
 def test_cache_expires_evicts_and_reuses_opaque_objects(tmp_path, monkeypatch):
