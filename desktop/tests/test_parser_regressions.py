@@ -255,6 +255,7 @@ def test_pv_uses_the_public_form_and_json_protocol(tmp_path, monkeypatch, source
     from urllib.parse import parse_qs, urlsplit
 
     client = pv.PVVideoClient(work_dir=str(tmp_path), disable_print=True)
+    source_host = urlsplit(source_url).hostname
     video_url = "https://cdn.test/video.mp4"
     audio_url = "https://cdn.test/audio.m4s"
     requested = []
@@ -301,13 +302,13 @@ def test_pv_uses_the_public_form_and_json_protocol(tmp_path, monkeypatch, source
     assert bool(info.title)
     if title:
         assert info.title == title
-    assert info.ext == ("mkv" if "facebook.com" in source_url else "mp4")
+    assert info.ext == ("mkv" if source_host == "www.facebook.com" else "mp4")
     assert info.audio_download_url == (audio_url if with_audio else "")
     if with_audio:
         assert info.audio_ext == "m4a"
-    if "bilibili.com" in source_url:
+    if source_host == "www.bilibili.com":
         assert info.default_download_headers == client.BILIBILI_REFERENCE_HEADERS
-    if "ted.com" in source_url:
+    if source_host == "www.ted.com":
         assert info.download_with_ffmpeg
 
 
