@@ -155,3 +155,22 @@ def test_wheel_passes_quality_and_theme_preserves_choices(window):
     assert not restored.home_intro.isVisible()
     assert media_cell(restored, 2).findChild(QComboBox).currentData() == "720"
     restored.close()
+
+
+def test_save_mode_is_remembered_and_queue_keeps_its_original_choice(window):
+    add_rows(window, 2)
+    assert window.save_mode.currentData() == "flat"
+    window.save_mode.setCurrentIndex(window.save_mode.findData("by_work"))
+    first, second = [row for row in window.catalog.rows if row["kind"] == "video"]
+    window.download_results([first])
+    window.save_mode.setCurrentIndex(window.save_mode.findData("by_type"))
+    window.download_results([second])
+    assert [job["save_mode"] for job in window.jobs] == ["by_work", "by_type"]
+    for kind in ("audio", "video", "cover"):
+        window.type_filter.setCurrentIndex(window.type_filter.findData(kind))
+        assert window.download_all_button.text() == "批量下载" + {"audio": "音频", "video": "视频", "cover": "封面"}[kind]
+    window.persist()
+    restored = Window()
+    assert restored.save_mode.currentData() == "by_type"
+    assert [job["save_mode"] for job in restored.jobs] == ["by_work", "by_type"]
+    restored.close()

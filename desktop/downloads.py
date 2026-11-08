@@ -24,19 +24,21 @@ class DownloadQueue:
         if not output:
             return 0
         added = 0
+        save_mode = self.save_mode.currentData()
         for group in groups:
             existing = next((job for job in self.jobs if job["url"] == group["url"]
                 and job["options"] == group["options"] and job["output"] == output
                 and job.get("indices") == group.get("indices")
                 and job.get("item_keys") == group.get("item_keys")
                 and job.get("format_ids", {}) == group.get("format_ids", {})
+                and job.get("save_mode", "flat") == save_mode
                 and job["status"] in ("waiting", "active")), None)
             if existing:
                 existing["result_ids"] = list(dict.fromkeys(existing.get("result_ids", []) + group.get("result_ids", [])))
                 self.catalog.link_job(existing)
                 self.catalog.sync_job(existing)
                 continue
-            job = {**group, "id": uuid.uuid4().hex, "output": output, "common": self.common.isChecked(),
+            job = {**group, "id": uuid.uuid4().hex, "output": output, "common": self.common.isChecked(), "save_mode": save_mode,
                 "status": "waiting", "percent": 0, "detail": "等待下载", "files": [],
                 "created": datetime.now().isoformat(timespec="seconds")}
             self.jobs.append(job)
@@ -74,7 +76,7 @@ class DownloadQueue:
                 continue
             job.update(status="active", detail="正在准备下载")
             command = {"action": "download", **{key: job.get(key) for key in
-                ("url", "output", "options", "indices", "item_keys", "common", "format_ids", "identity_version")}}
+                ("url", "output", "options", "indices", "item_keys", "common", "format_ids", "identity_version", "save_mode", "item_folders")}}
             worker = Worker(command, self)
             self.running[job["id"]] = worker
             worker.event.connect(lambda event, current=job: self.job_event(current, event))
@@ -87,6 +89,10 @@ class DownloadQueue:
 
     def job_event(self, job, event):
         kind = event["event"]
+        if kind == "destination":
+            job.setdefault("item_folders", {})[event["item_key"]] = event["folder"]
+            self.persist()
+            return
         if kind == "parsed" and event.get("items"):
             items = event["items"]
             job["cache_hit"] = event.get("cache_hit", False)

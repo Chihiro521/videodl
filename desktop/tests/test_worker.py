@@ -8,6 +8,25 @@ from desktop.storage import save_json
 from desktop.tests.test_media import variant_server
 
 
+@pytest.mark.skipif(not os.environ.get("VIDEODL_TEST_EXE"), reason="requires packaged executable")
+def test_frozen_package_includes_verified_downloader():
+    import hashlib
+    from pathlib import Path
+
+    config_path = Path(__file__).resolve().parents[1] / "media-tools.json"
+    expected = json.loads(config_path.read_text(encoding="utf-8"))["yt_dlp"]
+    downloader = Path(os.environ["VIDEODL_TEST_EXE"]).parent / "_internal/tools/yt-dlp.exe"
+    assert downloader.is_file()
+    with downloader.open("rb") as stream:
+        assert hashlib.file_digest(stream, "sha256").hexdigest() == expected["sha256"]
+    environment = os.environ.copy()
+    environment["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    result = subprocess.run([str(downloader), "--version"], capture_output=True, text=True, env=environment, timeout=30, check=True)
+    assert result.stdout.strip() == expected["version"]
+
+
 def test_worker_diagnostics_includes_login_components(tmp_path):
     path = tmp_path / "diagnostics.json"
     save_json(path, {"action": "diagnostics"})
@@ -87,13 +106,14 @@ def test_frozen_gui_extracts_selects_and_downloads(tmp_path, media_server):
     assert report["jobs"][0]["cache_hit"]
 
 
-def test_gui_groups_multiple_links_and_saves_flat_outputs(tmp_path, media_server):
+@pytest.mark.parametrize("save_mode", ["flat", "by_work", "by_type"])
+def test_gui_groups_multiple_links_and_saves_chosen_way(tmp_path, media_server, save_mode):
     from pathlib import Path
     server, _ = media_server
     urls = [server + "/sample.mp4?source=first", server + "/sample.mp4?source=second"]
     command = tmp_path / "batch-input.json"
     output = tmp_path / "多链接下载"
-    save_json(command, {"text": f"第一条 {urls[0]}\n第二条 {urls[1]}\n重复 {urls[0]}", "output": str(output), "kind": "all"})
+    save_json(command, {"text": f"第一条 {urls[0]}\n第二条 {urls[1]}\n重复 {urls[0]}", "output": str(output), "kind": "all", "save_mode": save_mode, "concurrency": 2})
     environment = os.environ.copy()
     frozen = os.environ.get("VIDEODL_TEST_EXE")
     executable = [frozen] if frozen else [sys.executable, "-m", "desktop"]
@@ -114,8 +134,17 @@ def test_gui_groups_multiple_links_and_saves_flat_outputs(tmp_path, media_server
     assert len(report["jobs"]) == 2 and all(job["status"] == "done" for job in report["jobs"])
     files = [Path(f["path"]) for job in report["jobs"] for f in job["files"]]
     assert len(files) == len(set(files)) == 4
-    assert all(path.is_file() and path.parent == output for path in files)
-    assert not any(path.is_dir() for path in output.iterdir())
+    assert all(path.is_file() for path in files)
+    if save_mode == "flat":
+        assert all(path.parent == output for path in files)
+        assert not any(path.is_dir() for path in output.iterdir())
+    elif save_mode == "by_work":
+        parents = [{Path(f["path"]).parent for f in job["files"]} for job in report["jobs"]]
+        assert all(len(paths) == 1 for paths in parents) and parents[0] != parents[1]
+        assert len(list(output.iterdir())) == 2
+    else:
+        assert {path.name for path in output.iterdir()} == {"视频", "音频"}
+        assert all(Path(f["path"]).parent.name == {"video": "视频", "audio": "音频"}[f["kind"]] for job in report["jobs"] for f in job["files"])
 
 
 @pytest.mark.skipif(not os.environ.get("VIDEODL_TEST_EXE"), reason="requires packaged executable")

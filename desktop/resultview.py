@@ -258,6 +258,9 @@ class ResultView:
         available = [row for row in rows if self.row_state(row, jobs)[0] not in ("done", "waiting", "active")]
         self.download_selected_button.setEnabled(any(row.get("checked") for row in available))
         self.download_all_button.setEnabled(bool(available))
+        kind = self.type_filter.currentData()
+        self.download_all_button.setText("批量下载" + KINDS[kind] if kind in KINDS else "全部下载")
+        self.download_all_button.setToolTip("下载当前搜索及类型筛选范围中的未完成内容")
         available_ids = {row["id"] for row in available}
         for url, members in self.visible_source_groups(rows):
             header = self.source_headers.get(url)

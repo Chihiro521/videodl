@@ -227,7 +227,7 @@ class Window(QMainWindow, WorkbenchPages, DownloadQueue, ExtractionController, R
         self.settings.update(output=self.destination.text(), common=self.common.isChecked(),
             options={kind: check.isChecked() for kind, check in self.options.items()},
             concurrency=self.concurrency.value(), extract_concurrency=self.extract_concurrency.value(),
-            auto_download=self.auto_download.isChecked(), theme=self.theme_control.currentData())
+            auto_download=self.auto_download.isChecked(), theme=self.theme_control.currentData(), save_mode=self.save_mode.currentData())
         try:
             import json
             for name, value in (("settings", self.settings), ("queue", self.jobs), ("results", self.catalog.rows)):

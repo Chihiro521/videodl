@@ -27,6 +27,7 @@ class Worker(QObject):
         self.ended = False
         self.killer = None
         self.scratch = set()
+        self.created_folders = set()
         self.engine = None
         self.succeeded = False
         self.pending = None
@@ -85,6 +86,9 @@ class Worker(QObject):
                         return
                     if event.get("event") == "scratch":
                         self.scratch.add(event["path"])
+                    if event.get("event") == "created_folder":
+                        self.created_folders.add(event["path"])
+                        continue
                     self.event.emit(event)
         except (OSError, ValueError):
             pass
@@ -130,10 +134,20 @@ class Worker(QObject):
             self.pending = None
         if self.command.get("output"):
             root = Path(self.command["output"]).resolve()
+            cache = (data_dir() / "temp").resolve()
             for name in sorted(self.scratch, key=len, reverse=True):
                 scratch = Path(name).resolve()
-                if scratch.is_relative_to(root) and scratch.name.startswith((".media-", ".audio-")) and scratch.is_dir():
+                owned = scratch.is_relative_to(root) or scratch.is_relative_to(cache) or (self.engine is not None and scratch.is_relative_to(self.engine.root.resolve()))
+                publishing = scratch.parent == root.parent and scratch.name.startswith(".videodl-publish-")
+                if (owned and scratch.name.startswith((".media-", ".audio-")) or publishing) and scratch.is_dir():
                     shutil.rmtree(scratch, ignore_errors=True)
+            for name in self.created_folders:
+                folder = Path(name).resolve()
+                if folder != root and folder.is_relative_to(root):
+                    try:
+                        folder.rmdir()
+                    except OSError:
+                        pass
         self.path.unlink(missing_ok=True)
         self.event_path.unlink(missing_ok=True)
         self.finished.emit(code)

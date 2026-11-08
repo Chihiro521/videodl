@@ -58,7 +58,11 @@ def run(command_file, session):
 def main(command_path: str) -> int:
     prepare()
     from .session import Session
-    return run(Path(command_path), Session())
+    session = Session()
+    try:
+        return run(Path(command_path), session)
+    finally:
+        session.close()
 
 
 def engine(directory: str) -> int:
@@ -66,7 +70,7 @@ def engine(directory: str) -> int:
     prepare()
     from .session import Session
     # Six GUI slots together retain at most 48 entries, below the 50-link cap.
-    session = Session(capacity=8)
+    session = Session(capacity=8, workspace=Path(directory) / "workspace")
     root = Path(directory)
     while root.is_dir():
         if not (root / "heartbeat").exists() or time.time() - (root / "heartbeat").stat().st_mtime > 30:

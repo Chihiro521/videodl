@@ -142,14 +142,23 @@ def media_tools():
     cache = ROOT / "build/media-cache"
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / config["url"].rsplit("/", 1)[1]
-    if not archive.exists():
-        with requests.get(config["url"], stream=True, timeout=(30, 120)) as response:
-            response.raise_for_status()
-            with archive.open("wb") as output:
-                for chunk in response.iter_content(1024 * 1024):
-                    output.write(chunk)
-    if hashlib.file_digest(archive.open("rb"), "sha256").hexdigest() != config["sha256"]:
-        raise RuntimeError("Media tool archive checksum mismatch")
+    downloader_config = config["yt_dlp"]
+    downloader = cache / f"yt-dlp-{downloader_config['version']}.exe"
+    for cached_file, resource in ((archive, config), (downloader, downloader_config)):
+        candidate = cached_file
+        if not cached_file.exists():
+            candidate = cached_file.with_name(cached_file.name + ".part")
+            with requests.get(resource["url"], stream=True, timeout=(30, 120)) as response:
+                response.raise_for_status()
+                with candidate.open("wb") as output:
+                    for chunk in response.iter_content(1024 * 1024):
+                        output.write(chunk)
+        with candidate.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if digest != resource["sha256"]:
+            raise RuntimeError("Media tool checksum mismatch for " + cached_file.name)
+        if candidate != cached_file:
+            candidate.replace(cached_file)
     extracted = WORK / "media-tools"
     extracted.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as compressed:
@@ -158,7 +167,9 @@ def media_tools():
             if not path.resolve().is_relative_to(extracted.resolve()):
                 raise RuntimeError("Unexpected archive path")
             compressed.extract(entry, extracted)
-    return next(extracted.glob("*/bin")), config
+    tools = next(extracted.glob("*/bin"))
+    shutil.copy2(downloader, tools / "yt-dlp.exe")
+    return tools, config
 
 
 def main():
@@ -171,7 +182,8 @@ def main():
     tools, config = media_tools()
     upstream_info = json.loads((ROOT / "desktop/upstream.json").read_text(encoding="utf-8"))
     save_json(WORK / "build-info.json", {"desktop_version": __version__, **upstream_info,
-        "desktop_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "media_tools": config["version"]})
+        "desktop_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "media_tools": config["version"], "yt_dlp": config["yt_dlp"]["version"]})
     # The spec takes explicit paths rather than the developer's global PATH.
     environment = isolated_environment(stage, tools)
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--distpath", str(DIST),
@@ -188,6 +200,8 @@ def main():
     notice = ("VideoDL Desktop " + __version__ + "\nOriginal project: https://github.com/CharlesPikachu/videodl\nDesktop project: https://github.com/Chihiro521/videodl\n\n"
               + config["version"] + "\nBinary: " + config["url"] + "\nFFmpeg source: " + config["source_url"] + "\nBuild scripts and dependency source recipes: " + config["build_source_url"]
               + "\nFFmpeg uses shared libraries; they can be replaced in _internal/tools.\n"
+              + "\nyt-dlp " + config["yt_dlp"]["version"] + "\nBinary: " + config["yt_dlp"]["url"]
+              + "\nSource: " + config["yt_dlp"]["source_url"] + "\nLicense: Unlicense\n"
               + "Qt source: https://code.qt.io/cgit/qt/qtbase.git/tag/?h=v6.12.0\n"
               + "PySide source: https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v6.12.0\n\nPython dependency notices:\n")
     for distribution in sorted(importlib.metadata.distributions(), key=lambda d: d.metadata["Name"].lower()):
