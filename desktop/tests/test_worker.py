@@ -8,6 +8,25 @@ from desktop.storage import save_json
 from desktop.tests.test_media import variant_server
 
 
+@pytest.mark.skipif(not os.environ.get("VIDEODL_TEST_EXE"), reason="requires packaged executable")
+def test_frozen_package_includes_verified_downloader():
+    import hashlib
+    from pathlib import Path
+
+    config_path = Path(__file__).resolve().parents[1] / "media-tools.json"
+    expected = json.loads(config_path.read_text(encoding="utf-8"))["yt_dlp"]
+    downloader = Path(os.environ["VIDEODL_TEST_EXE"]).parent / "_internal/tools/yt-dlp.exe"
+    assert downloader.is_file()
+    with downloader.open("rb") as stream:
+        assert hashlib.file_digest(stream, "sha256").hexdigest() == expected["sha256"]
+    environment = os.environ.copy()
+    environment["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    result = subprocess.run([str(downloader), "--version"], capture_output=True, text=True, env=environment, timeout=30, check=True)
+    assert result.stdout.strip() == expected["version"]
+
+
 def test_worker_diagnostics_includes_login_components(tmp_path):
     path = tmp_path / "diagnostics.json"
     save_json(path, {"action": "diagnostics"})

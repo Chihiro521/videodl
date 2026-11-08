@@ -13,7 +13,7 @@ Windows 桌面版，用于批量保存视频封面、独立音频和视频。界
 5. 窗口底部可选择保存位置及“保存方式”：**直接保存文件**不建作品文件夹；**按作品分文件夹**把同一作品的视频、音频和封面放在一起；**按类型分文件夹**分别放进“视频”“音频”“封面”。同名文件或不同作品的同名文件夹自动增加编号。完成后点击文件夹按钮可打开文件所在位置。
 6. “下载队列”保留详细进度、暂停、取消、重试和历史记录。首页也可开启“提取后自动下载”，自动下载的内容在“设置”中选择。
 
-发行包内提供 Python 运行环境、FFmpeg、ffprobe 和 Node.js 运行时，适用于 Windows 10/11 x64。部分上游解析器还依赖浏览器或其他外部工具，其可用范围以具体解析结果为准。
+发行包内提供 Python 运行环境、FFmpeg、ffprobe、yt-dlp 和 Node.js 运行时，适用于 Windows 10/11 x64。部分上游解析器还依赖浏览器或其他外部工具，其可用范围以具体解析结果为准。
 
 ## 音频、画质与队列
 
@@ -78,7 +78,7 @@ uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.txt pyi
 .\.venv\Scripts\python.exe -m desktop.build
 ```
 
-输出位于 `dist/desktop/`，包含便携文件夹、ZIP 和 `SHA256SUMS.txt`。构建需要 Git、网络和全新输出目录。FFmpeg 使用 `media-tools.json` 中固定的下载地址与 SHA-256；Python 依赖固定在 `requirements.txt`。
+输出位于 `dist/desktop/`，包含便携文件夹、ZIP 和 `SHA256SUMS.txt`。构建需要 Git、网络和全新输出目录。FFmpeg 和 yt-dlp 使用 `media-tools.json` 中固定的下载地址与 SHA-256，Python 依赖固定在 `requirements.txt`。
 
 构建只收录所需的源码和资源，生成独立的发行用上游副本，清除源码内置的 Cookie、服务 token 和密钥默认值；相关解析器的可用性仍需单独验证。构建不会修改工作区的上游源码。发行包不包含 `.wvd` 身份文件、本机配置、日志和历史下载。`public-build-audit.json` 记录处理的字段名，`build-info.json` 记录构建版本，`THIRD-PARTY-NOTICES.txt` 保留依赖说明与来源。
 

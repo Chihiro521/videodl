@@ -3,5 +3,11 @@
   "url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-N-128227-g4811625b5f-win64-lgpl-shared.zip",
   "sha256": "df0064c654faad1537cbf31c399cd93d3aaf6147e23de094a62884ecd480a6bf",
   "source_url": "https://github.com/FFmpeg/FFmpeg/tree/4811625b5f",
-  "build_source_url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/autobuild-2026-10-31-12-59"
+  "build_source_url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/autobuild-2026-10-31-12-59",
+  "yt_dlp": {
+    "version": "2026.10.26",
+    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp.exe",
+    "sha256": "f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d",
+    "source_url": "https://github.com/yt-dlp/yt-dlp/tree/2026.10.26"
+  }
 }
