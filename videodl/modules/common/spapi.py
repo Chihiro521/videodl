@@ -48,6 +48,8 @@ class SpapiVideoClient(BaseVideoClient):
             return {'pathURL': 'YXBpL2h0bWw=', 'baseURL': 'Ly9hcGkuc3BhcGkuY24v'}
     '''_evpbytestokey'''
     def _evpbytestokey(self, password, salt, key_len, iv_len):
+        # SPAPI messages use CryptoJS/OpenSSL passphrase-format compatibility.
+        # Its current service expects the MD5-based EVP_BytesToKey derivation.
         d = d_i = b''
         while len(d) < key_len + iv_len: d_i = hashlib.md5(d_i + password + salt).digest(); d += d_i
         return d[:key_len], d[key_len: key_len+iv_len]

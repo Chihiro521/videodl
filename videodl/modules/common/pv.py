@@ -9,14 +9,9 @@ WeChat Official Account (微信公众号):
 import os
 import re
 import time
-import struct
-import base64
 import hashlib
-import json_repair
 import urllib.parse
-from Cryptodome.Cipher import AES
 from ..sources import BaseVideoClient
-from Cryptodome.Util.Padding import unpad
 from typing import Any, Dict, List, Tuple
 from ..utils.domains import platformfromurl
 from ..utils import VideoInfo, FileTypeSniffer, useparseheaderscookies, legalizestring, resp2json, yieldtimerelatedtitle
@@ -36,40 +31,11 @@ class PVVideoClient(BaseVideoClient):
         timestamp = int(time.time() * 1000); hash_string = f"{url}%8vcf{timestamp}"
         md5_hash = hashlib.md5(hash_string.encode()).hexdigest()
         return f"hash={md5_hash}&timestamp={timestamp}"
-    '''_wordstokey'''
-    def _wordstokey(self, words, sig_bytes):
-        byte_array = bytearray()
-        for word in words: byte_array.extend(struct.pack(">I", word & 0xFFFFFFFF))
-        return bytes(byte_array[:sig_bytes])
-    '''_encrypturl'''
-    def _encrypturl(self, url_data: str):
-        key_words = [1681142116, 946037817, 946221104, 1647456308, 1698248752, 809056568, 1701013048, 875706213]
-        sig_bytes = 32; key_bytes = self._wordstokey(key_words, sig_bytes); data_bytes = url_data.encode("utf-8")
-        block_size = 16; padding_length = block_size - (len(data_bytes) % block_size); padded_data = data_bytes + bytes([padding_length] * padding_length)
-        cipher = AES.new(key_bytes, AES.MODE_ECB); encrypted = cipher.encrypt(padded_data)
-        return base64.b64encode(encrypted).decode("utf-8")
-    '''_parsebase64'''
-    def _parsebase64(self, base64_string):
-        data_bytes, words = base64.b64decode(base64_string), []
-        padded_data = data_bytes.ljust((len(data_bytes) + 3) // 4 * 4, b"\x00")
-        for i in range(0, len(padded_data), 4): words.append(struct.unpack(">i", padded_data[i : i + 4])[0])
-        return {"words": words, "sigBytes": len(data_bytes)}
-    '''_wordstohex'''
-    def _wordstohex(self, word_array):
-        words = word_array["words"]; sig_bytes = word_array["sigBytes"]; byte_array = bytearray()
-        for word in words: byte_array.extend(struct.pack(">i", word))
-        result_bytes = bytes(byte_array[:sig_bytes]); hex_string = result_bytes.hex()
-        return hex_string
     '''_encodeurl'''
     def _encodeurl(self, url, proxy=True):
         if isinstance(url, bytes): url = url.decode("utf-8")
         encoded = urllib.parse.quote(url, safe="")
         return f"url={encoded}{'&proxyip=on' if proxy else ''}"
-    '''_decryptresponse'''
-    def _decryptresponse(self, encrypted_hex, key_hex):
-        key = bytes.fromhex(key_hex); encrypted_bytes = bytes.fromhex(encrypted_hex)
-        cipher = AES.new(key, AES.MODE_ECB); decrypted_bytes = unpad(cipher.decrypt(encrypted_bytes), AES.block_size); decrypted_text = decrypted_bytes.decode('utf-8')
-        return json_repair.loads(decrypted_text)
     '''_splitandsortformats'''
     def _splitandsortformats(self, formats: List[Dict[str, Any]], include_muxed_in_audio: bool = False) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         W_BY_H = {240:426, 360:640, 480:854, 720:1280, 1080:1920, 1440:2560, 2160:3840, 4320:7680}
@@ -99,11 +65,10 @@ class PVVideoClient(BaseVideoClient):
         try:
             # --init
             (resp := self.get('https://www.parsevideo.com/', **request_overrides)).raise_for_status(); self.default_cookies.update(resp.cookies.get_dict())
-            # --post request and decrypt response
-            query_url = "https://www.parsevideo.com/parsevideo/enc.html?" + self._buildquery(url)
-            encode_url = self._encodeurl(url); base64_string = self._encrypturl(encode_url); word_array = self._parsebase64(base64_string); hex_result = self._wordstohex(word_array)
-            (resp := self.post(query_url, data={"data": hex_result}, **request_overrides)).raise_for_status()
-            video_info.update(dict(raw_data=(raw_data := self._decryptresponse(resp2json(resp=resp)['data'], "6434316438636439386630306232303465393830303939386563663834323765"))))
+            # --post the form to the public JSON endpoint
+            query_url = "https://www.parsevideo.com/parsevideo/api.html?" + self._buildquery(url)
+            (resp := self.post(query_url, data=self._encodeurl(url), **request_overrides)).raise_for_status()
+            video_info.update(dict(raw_data=(raw_data := resp2json(resp=resp))))
             # --video title
             video_title = legalizestring(raw_data.get('title') or null_backup_title, replace_null_string=null_backup_title).removesuffix('.')
             # --extract download urls
