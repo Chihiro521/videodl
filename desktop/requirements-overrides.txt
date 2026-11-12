@@ -1,3 +1,5 @@
 # Desktop override for reviewed GHSA-537c-gmf6-5ccf, GHSA-g6cj-pr64-35w5,
 # and GHSA-jwv3-5hgf-82ww. Keep upstream requirements.txt unchanged.
 cryptography>=50.0.2,<51
+# Includes libcurl 8.23.0 and Brotli 1.2.1 for the native HTTP transport.
+curl-cffi>=0.17.0,<0.18

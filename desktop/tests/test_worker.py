@@ -27,6 +27,32 @@ def test_frozen_package_includes_verified_downloader():
     assert result.stdout.strip() == expected["version"]
 
 
+@pytest.mark.skipif(not os.environ.get("VIDEODL_TEST_EXE"), reason="requires packaged executable")
+def test_frozen_package_uses_patched_node():
+    import hashlib
+    from pathlib import Path
+
+    root = Path(os.environ["VIDEODL_TEST_EXE"]).parent
+    tool_config = json.loads((Path(__file__).resolve().parents[1] / "media-tools.json").read_text(encoding="utf-8"))
+    config = tool_config["nodejs"]
+    nodes = list(root.rglob("node.exe"))
+    assert nodes == [root / "_internal/tools/node.exe"]
+    with nodes[0].open("rb") as stream:
+        assert hashlib.file_digest(stream, "sha256").hexdigest() == config["sha256"]
+    result = subprocess.run([str(nodes[0]), "-p", "JSON.stringify({node:process.versions.node,brotli:process.versions.brotli})"],
+        capture_output=True, text=True, timeout=30, check=True)
+    versions = json.loads(result.stdout)
+    assert versions["node"] == config["version"]
+    assert tuple(int(part) for part in versions["brotli"].split(".")) >= (1, 2, 1)
+    tools = root / "_internal/tools"
+    probe = subprocess.run([str(tools / "ffprobe.exe"), "-version"], capture_output=True, text=True, timeout=30, check=True)
+    assert tool_config["source_url"].rsplit("/", 1)[1] in probe.stdout.splitlines()[0]
+    for library in tools.glob("av*.dll"):
+        other_copy = root / "_internal" / library.name
+        if other_copy.exists():
+            assert hashlib.sha256(library.read_bytes()).digest() == hashlib.sha256(other_copy.read_bytes()).digest()
+
+
 def test_worker_diagnostics_includes_login_components(tmp_path):
     path = tmp_path / "diagnostics.json"
     save_json(path, {"action": "diagnostics"})
@@ -41,6 +67,14 @@ def test_worker_diagnostics_includes_login_components(tmp_path):
     assert result.returncode == 0
     event = json.loads(path.with_suffix(".events").read_text(encoding="utf-8").splitlines()[-1])
     assert event["event"] == "result" and event["qr_login"] and event["encrypted_storage"]
+    if frozen:
+        from pathlib import Path
+        assert Path(event["node_path"]) == Path(frozen).parent / "_internal/tools/node.exe"
+    import re
+    curl_version = re.search(r"libcurl/(\d+)\.(\d+)\.(\d+)", event["curl_version"])
+    brotli_version = re.search(r"brotli/(\d+)\.(\d+)\.(\d+)", event["curl_version"])
+    assert curl_version and tuple(map(int, curl_version.groups())) >= (8, 23, 0)
+    assert brotli_version and tuple(map(int, brotli_version.groups())) >= (1, 2, 1)
 
 
 def test_worker_process_protocol_and_all_outputs(tmp_path, media_server):
