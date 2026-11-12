@@ -39,8 +39,10 @@ cssselect==1.6.0
     # via
     #   drissionpage
     #   parsel
-curl-cffi==0.16.3
-    # via -r requirements.txt
+curl-cffi==0.17.0
+    # via
+    #   --override desktop/requirements-overrides.txt
+    #   -r requirements.txt
 drissionget==1.2.1
     # via drissionpage
 drissionpage==4.1.1.4

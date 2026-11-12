@@ -1,9 +1,15 @@
 {
-  "version": "FFmpeg N-128227-g4811625b5f (LGPL shared)",
-  "url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-N-128227-g4811625b5f-win64-lgpl-shared.zip",
-  "sha256": "df0064c654faad1537cbf31c399cd93d3aaf6147e23de094a62884ecd480a6bf",
-  "source_url": "https://github.com/FFmpeg/FFmpeg/tree/4811625b5f",
-  "build_source_url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/autobuild-2026-10-31-12-59",
+  "version": "FFmpeg N-128790-g9bee1e603c (LGPL shared)",
+  "url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-11-12-39/ffmpeg-N-128790-g9bee1e603c-win64-lgpl-shared.zip",
+  "sha256": "f9d002b1da11eb579ecfb1bade24b3ecc53cd2e7715434c9a3591868dc515471",
+  "source_url": "https://github.com/FFmpeg/FFmpeg/tree/9bee1e603c",
+  "build_source_url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/autobuild-2026-11-11-12-39",
+  "nodejs": {
+    "version": "24.22.3",
+    "url": "https://nodejs.org/dist/v24.22.3/win-x64/node.exe",
+    "sha256": "86fc4785327db5f5c7558dc6156c543b433c313e813a222e088086222ab4afa6",
+    "source_url": "https://github.com/nodejs/node/tree/v24.22.3"
+  },
   "yt_dlp": {
     "version": "2026.10.26",
     "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp.exe",

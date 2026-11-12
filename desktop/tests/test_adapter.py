@@ -18,6 +18,31 @@ def test_upstream_contract():
     assert result["common"] > 0
 
 
+def test_audio_probe_timeout_cleans_intermediate_files(tmp_path, media_server, monkeypatch):
+    server, _ = media_server
+    output = tmp_path / "output"
+    adapter = Adapter(output, common=False)
+    real_run = subprocess.run
+
+    def run(command, **kwargs):
+        if Path(command[0]).stem == "ffprobe":
+            assert kwargs["timeout"] == 45
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        return real_run(command, **kwargs)
+
+    try:
+        infos = adapter.parse(server + "/sample.mp4")
+        monkeypatch.setattr(subprocess, "run", run)
+        result = adapter.download(infos, {"audio": True, "video": False, "cover": False})
+        assert result["status"] == "failed"
+        assert result["files"] == []
+        assert not output.exists() or not list(output.iterdir())
+        assert not list(adapter.workspace.glob(".media-*"))
+        assert not list(adapter.workspace.glob(".audio-*"))
+    finally:
+        adapter.close()
+
+
 def parse_fixture(adapter, server):
     infos = adapter.parse(server + "/sample.mp4")
     assert infos

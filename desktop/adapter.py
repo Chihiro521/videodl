@@ -44,6 +44,8 @@ class QuietLogger:
 
 def find_tool(name: str) -> str | None:
     import sys
+    if name == "node" and (configured := os.environ.get("VIDEODL_NODE_EXECUTABLE")):
+        return configured if Path(configured).is_file() else None
     roots = [Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent)), Path(sys.executable).parent]
     for root in roots:
         path = root / "tools" / (name + (".exe" if sys.platform == "win32" else ""))
@@ -54,6 +56,18 @@ def find_tool(name: str) -> str | None:
 
 def tool_environment():
     import os
+    if sys.platform == "win32":
+        if getattr(sys, "frozen", False):
+            node = Path(sys._MEIPASS) / "tools/node.exe"
+        else:
+            root = Path(__file__).resolve().parent.parent
+            config = json.loads((root / "desktop/media-tools.json").read_text(encoding="utf-8"))
+            node = root / "build/media-cache" / ("node-" + config["nodejs"]["version"]) / "node.exe"
+            archive_name = config["url"].rsplit("/", 1)[1].removesuffix(".zip")
+            tools = root / "build/desktop-package/media-tools" / archive_name / "bin"
+            if tools.is_dir():
+                os.environ["PATH"] = str(tools) + os.pathsep + os.environ.get("PATH", "")
+        os.environ["VIDEODL_NODE_EXECUTABLE"] = str(node)
     dirs = {str(Path(p).parent) for n in ("ffmpeg", "ffprobe", "node") if (p := find_tool(n))}
     os.environ["PATH"] = os.pathsep.join(sorted(dirs) + [os.environ.get("PATH", "")])
 

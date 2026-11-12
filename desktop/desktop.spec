@@ -13,7 +13,7 @@ binaries = []
 hidden = []
 for package in ['videodl', 'fake_useragent', 'tldextract', 'pycountry', 'emoji', 'DrissionPage', 'DrissionGet', 'DrissionRecord', 'nodejs_wheel', 'nodejs_wheel_binaries', 'pyfreeproxy', 'freeproxy', 'puremagic']:
     hidden += collect_submodules(package)
-    data += collect_data_files(package, excludes=['**/*.wvd', '**/__pycache__/**', '**/tests/**'])
+    data += collect_data_files(package, excludes=['**/*.wvd', '**/__pycache__/**', '**/tests/**', '**/node.exe', 'node.exe'])
     binaries += collect_dynamic_libs(package)
 for package in ['fake-useragent', 'pyfreeproxy', 'nodejs-wheel', 'nodejs-wheel-binaries', 'DrissionPage', 'DrissionGet', 'DrissionRecord', 'pywidevine', 'construct', 'puremagic']:
     data += copy_metadata(package)
@@ -21,7 +21,7 @@ data += [(str(root / 'desktop/assets' / filename), 'desktop/assets') for filenam
 data += [(str(root / 'desktop/upstream.json'), 'desktop'), (str(work / 'build-info.json'), 'desktop')]
 tools = Path(os.environ['VIDEODL_BUILD_TOOLS'])
 for path in tools.iterdir():
-    if path.suffix.lower() in {'.exe', '.dll'} and (path.suffix.lower() != '.exe' or path.stem in {'ffmpeg', 'ffprobe', 'yt-dlp'}):
+    if path.suffix.lower() in {'.exe', '.dll'} and (path.suffix.lower() != '.exe' or path.stem in {'ffmpeg', 'ffprobe', 'yt-dlp', 'node'}):
         binaries.append((str(path), 'tools'))
 hidden += ['desktop.worker', 'desktop.adapter', 'desktop.updates', 'Crypto', 'Cryptodome', 'curl_cffi', 'quickjs', 'lxml.etree']
 for p in ['Crypto', 'Cryptodome']:
@@ -31,6 +31,9 @@ a = Analysis([str(stage / 'desktop/entry.py')], pathex=[str(stage)], binaries=bi
     hiddenimports=hidden, hookspath=[], hooksconfig={}, runtime_hooks=[],
     excludes=['PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtPdf', 'PySide6.QtQml', 'PySide6.QtQuick', 'tkinter', 'pytest', 'numpy', 'IPython'], noarchive=False)
 upstream_modules = [(name, filename) for name, filename, kind in a.pure if name == 'videodl' or name.startswith('videodl.')]
+node_entries = [(name, filename) for name, filename, kind in a.binaries + a.datas if Path(name).name.lower() == 'node.exe']
+if len(node_entries) != 1 or Path(node_entries[0][0]).as_posix() != 'tools/node.exe' or Path(node_entries[0][1]).resolve() != (tools / 'node.exe').resolve():
+    raise RuntimeError('The package must contain only the pinned Node.js executable')
 if not upstream_modules or any(not Path(filename).resolve().is_relative_to(stage.resolve()) for name, filename in upstream_modules):
     raise RuntimeError('Upstream modules must come from the isolated public build source')
 allowed_native_roots = [Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve(), stage.resolve(), tools.resolve(), Path(os.environ['SystemRoot']).resolve()]

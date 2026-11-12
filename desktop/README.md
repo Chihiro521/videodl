@@ -58,6 +58,7 @@ git clone --branch desktop https://github.com/Chihiro521/videodl.git
 cd videodl
 uv venv --python 3.12
 uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.txt
+.\.venv\Scripts\python.exe -c "from desktop.build import media_tools; media_tools()"
 ```
 
 安装依赖后双击仓库根目录的 `启动桌面版.vbs`。开发时也可运行：
@@ -66,7 +67,7 @@ uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.txt
 .\.venv\Scripts\python.exe -m desktop
 ```
 
-源码运行的媒体处理依赖系统里的 FFmpeg 和 ffprobe，发行包中则提供对应工具。
+工具准备步骤会下载并校验固定版本的 FFmpeg、ffprobe、yt-dlp 和 Node.js。桌面端的 Node.js 调用使用这份程序。源码运行时可将准备步骤返回的工具目录加入 PATH，供媒体处理使用，发行包已包含这些工具。
 
 ## 构建、测试与发布
 
@@ -78,7 +79,7 @@ uv pip install --python .venv/Scripts/python.exe -r desktop/requirements.txt pyi
 .\.venv\Scripts\python.exe -m desktop.build
 ```
 
-输出位于 `dist/desktop/`，包含便携文件夹、ZIP 和 `SHA256SUMS.txt`。构建需要 Git、网络和全新输出目录。FFmpeg 和 yt-dlp 使用 `media-tools.json` 中固定的下载地址与 SHA-256，Python 依赖固定在 `requirements.txt`。
+输出位于 `dist/desktop/`，包含便携文件夹、ZIP 和 `SHA256SUMS.txt`。构建需要 Git、网络和全新输出目录。FFmpeg、yt-dlp 和 Node.js 使用 `media-tools.json` 中固定的下载地址与 SHA-256，Python 依赖固定在 `requirements.txt`。
 
 构建只收录所需的源码和资源，生成独立的发行用上游副本，清除源码内置的 Cookie、服务 token 和密钥默认值；相关解析器的可用性仍需单独验证。构建不会修改工作区的上游源码。发行包不包含 `.wvd` 身份文件、本机配置、日志和历史下载。`public-build-audit.json` 记录处理的字段名，`build-info.json` 记录构建版本，`THIRD-PARTY-NOTICES.txt` 保留依赖说明与来源。
 

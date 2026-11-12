@@ -34,11 +34,22 @@ def run(command_file, session):
             if command["action"] == "diagnostics":
                 import qrcode
                 from .bilibili_auth import protect
+                from .adapter import tool_environment
+                from videodl.modules.utils.youtubeutils import NodeRunner
+                tool_environment()
+                node_path = NodeRunner._nodepath()
+                from curl_cffi import Curl
+                curl = Curl()
+                try:
+                    curl_version = curl.version().decode("ascii")
+                finally:
+                    curl.close()
                 qr = qrcode.QRCode()
                 qr.add_data("https://www.bilibili.com/")
                 qr.make(fit=True)
                 encrypted_storage = os.name != "nt" or protect(protect(b"desktop-check"), decrypt=True) == b"desktop-check"
-                report("result", **check_contract(), qr_login=bool(qr.get_matrix()), encrypted_storage=encrypted_storage)
+                report("result", **check_contract(), qr_login=bool(qr.get_matrix()), encrypted_storage=encrypted_storage,
+                    node_path=node_path, curl_version=curl_version)
                 return 0
             report("progress", percent=-1, detail="正在准备媒体任务")
             report("result", **session.execute(command, report))

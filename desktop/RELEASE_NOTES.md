@@ -1,24 +1,11 @@
-# VideoDL Desktop 0.5.4
+# VideoDL Desktop 0.5.5
 
-## 解析器修复
+- FFmpeg 和 ffprobe 更新为包含 HEVC PPS 解析修复的 LGPL shared 构建 `N-128790-g9bee1e603c`，对应 CVE-2026-125183。
+- curl-cffi 更新为 0.17.0，实际内嵌 libcurl 8.23.0 和 Brotli 1.2.1，对应 CVE-2026-92392、CVE-2026-111497。
+- 桌面端固定使用官方 Node.js 24.22.3。源码运行与便携包的 YouTube 辅助进程使用同一选择规则，便携包排除依赖包中的旧 Node.exe。
+- FFmpeg、Node.js、yt-dlp 的官方来源和 SHA-256 固定在工具配置中，构建记录包含实际 Node.js 版本。
+- 修正工具准备步骤在保留旧缓存时可能选中旧 FFmpeg 目录的问题。
 
-- 爱奇艺改用官方公开元数据接口，取得标题、封面和分集信息，移除旧元数据签名流程。部分电影标题会省去“正片｜”前缀，封面和总集数采用新接口数据。
-- CCTV 使用公开视频编号获取元数据，移除旧签名参数。
-- ParseVideo 改用官网当前的表单与 JSON 接口，移除旧 ECB 加解密流程。
-- 修正抖音标题补齐、小红书短链接、新片场素材页、33tool 和 Xiazaitool 的域名判断。
-- YouTube 解析探测启用证书校验，SnapWC 客户端 RSA 密钥调整为 2048 位。
+33tool 旧接口适配和 #8、#9 的第三方协议告警继续列为待处理事项。ParseVideo 仍受服务端匿名调用次数限制。
 
-## 下载与打包
-
-- 自动打包收录固定版本的 yt-dlp 2026.10.26，并验证官方 SHA-256，供 YouTube Music 音频兜底下载使用。
-- FFmpeg 改用固定的月度 LGPL shared 构建，下载地址和校验值纳入构建配置。
-- 包含 0.5.3 的 YouTube Music 单曲适配、三种保存方式、按作品或类型整理，以及成品目录与中间文件分离功能。
-
-## 已知限制
-
-- 33tool 备用通道的旧接口目前返回 404，相关接口适配仍待处理。
-- 33tool 的 MD5 请求签名和 SPAPI 的 MD5 密钥派生受第三方服务协议约束，告警 #8、#9 仍待处理。
-- ParseVideo 有匿名调用次数限制。本轮已验证 B 站样本解析及 MP4 文件开头读取，后续重复往返对照遇到次数限制。
-- 平台解析可用性及可选画质取决于来源、登录状态和第三方接口当次返回的资源。
-
-下载 `VideoDL-Desktop-0.5.4-windows-x64.zip`，完整解压后运行 `VideoDL Desktop.exe`，同时保留 `_internal` 文件夹。新版沿用已有设置、B 站登录和下载记录。
+下载 `VideoDL-Desktop-0.5.5-windows-x64.zip`，完整解压后运行 `VideoDL Desktop.exe`，保留 `_internal` 文件夹。新版沿用已有设置、B 站登录和下载记录。

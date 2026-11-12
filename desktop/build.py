@@ -144,7 +144,10 @@ def media_tools():
     archive = cache / config["url"].rsplit("/", 1)[1]
     downloader_config = config["yt_dlp"]
     downloader = cache / f"yt-dlp-{downloader_config['version']}.exe"
-    for cached_file, resource in ((archive, config), (downloader, downloader_config)):
+    node_config = config["nodejs"]
+    node = cache / ("node-" + node_config["version"]) / "node.exe"
+    node.parent.mkdir(parents=True, exist_ok=True)
+    for cached_file, resource in ((archive, config), (downloader, downloader_config), (node, node_config)):
         candidate = cached_file
         if not cached_file.exists():
             candidate = cached_file.with_name(cached_file.name + ".part")
@@ -162,13 +165,17 @@ def media_tools():
     extracted = WORK / "media-tools"
     extracted.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as compressed:
+        archive_roots = {Path(entry.filename).parts[0] for entry in compressed.infolist()}
+        if len(archive_roots) != 1:
+            raise RuntimeError("Unexpected media tool archive layout")
         for entry in compressed.infolist():
             path = extracted / entry.filename
             if not path.resolve().is_relative_to(extracted.resolve()):
                 raise RuntimeError("Unexpected archive path")
             compressed.extract(entry, extracted)
-    tools = next(extracted.glob("*/bin"))
+    tools = extracted / archive_roots.pop() / "bin"
     shutil.copy2(downloader, tools / "yt-dlp.exe")
+    shutil.copy2(node, tools / "node.exe")
     return tools, config
 
 
@@ -183,7 +190,7 @@ def main():
     upstream_info = json.loads((ROOT / "desktop/upstream.json").read_text(encoding="utf-8"))
     save_json(WORK / "build-info.json", {"desktop_version": __version__, **upstream_info,
         "desktop_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-        "media_tools": config["version"], "yt_dlp": config["yt_dlp"]["version"]})
+        "media_tools": config["version"], "yt_dlp": config["yt_dlp"]["version"], "nodejs": config["nodejs"]["version"]})
     # The spec takes explicit paths rather than the developer's global PATH.
     environment = isolated_environment(stage, tools)
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--distpath", str(DIST),
@@ -202,6 +209,9 @@ def main():
               + "\nFFmpeg uses shared libraries; they can be replaced in _internal/tools.\n"
               + "\nyt-dlp " + config["yt_dlp"]["version"] + "\nBinary: " + config["yt_dlp"]["url"]
               + "\nSource: " + config["yt_dlp"]["source_url"] + "\nLicense: Unlicense\n"
+              + "\nNode.js " + config["nodejs"]["version"] + "\nBinary: " + config["nodejs"]["url"]
+              + "\nSource: " + config["nodejs"]["source_url"] + "\nLicense: MIT\n"
+              + "The nodejs-wheel Python API is retained; its bundled executable is replaced by the pinned official Node.js binary.\n"
               + "Qt source: https://code.qt.io/cgit/qt/qtbase.git/tag/?h=v6.12.0\n"
               + "PySide source: https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v6.12.0\n\nPython dependency notices:\n")
     for distribution in sorted(importlib.metadata.distributions(), key=lambda d: d.metadata["Name"].lower()):
