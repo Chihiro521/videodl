@@ -105,3 +105,9 @@ venv.bak/
 # mypy
 .mypy_cache/
 
+# Local working files, downloads, and uv cache
+/edit/
+/outputs/
+/videodl_outputs/
+/.uv-cache/
+
