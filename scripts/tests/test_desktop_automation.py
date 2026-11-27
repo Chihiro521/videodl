@@ -25,6 +25,7 @@ class AutomationTests(unittest.TestCase):
         self.git("init", "-b", "master")
         self.git("config", "user.name", "test")
         self.git("config", "user.email", "test@example.test")
+        self.git("config", "core.autocrlf", "false")
         # Avoid a detached Git maintenance process racing temporary cleanup.
         self.git("config", "gc.auto", "0")
         self.git("config", "maintenance.auto", "false")
@@ -72,11 +73,12 @@ class AutomationTests(unittest.TestCase):
         self.git("config", "--local", "--unset", "user.name")
         self.git("config", "--local", "--unset", "user.email")
         self.git("config", "--local", "user.useConfigOnly", "true")
-        with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}):
+        with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "0"}):
             for key in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
                 os.environ.pop(key, None)
             identity = automation.git(self.root, "var", "GIT_COMMITTER_IDENT", check=False)
             self.assertNotEqual(identity.returncode, 0)
+            self.assertEqual(self.git("status", "--porcelain"), "")
             result = automation.merge_upstream(self.root, revision)
         self.assertFalse(result["blocked"])
         self.assertEqual((self.root / ".github/workflows/desktop-ci.yml").read_text(), "trusted\n")
