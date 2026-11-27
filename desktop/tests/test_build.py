@@ -111,6 +111,44 @@ def test_media_tools_verifies_and_stages_all_binaries(tmp_path, monkeypatch, bad
     assert tools.name == "bin" and tools.parent.name == "ffmpeg-test"
 
 
+@pytest.mark.parametrize("valid_checksum", [True, False])
+def test_expired_ffmpeg_download_uses_verified_portable_release(tmp_path, monkeypatch, valid_checksum):
+    primary = "https://tools.test/ffmpeg.zip"
+    fallback = "https://tools.test/portable.zip"
+    binaries = {"ffmpeg.exe": b"ffmpeg", "ffprobe.exe": b"ffprobe", "avcodec-63.dll": b"avcodec"}
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, content in binaries.items():
+            archive.writestr("VideoDL Desktop/_internal/tools/" + name, content)
+        archive.writestr("VideoDL Desktop/FFmpeg-LICENSE.txt", b"LGPL notice")
+        archive.writestr("VideoDL Desktop/VideoDL Desktop.exe", b"application")
+        archive.writestr("VideoDL Desktop/_internal/tools/node.exe", b"older node")
+    portable = buffer.getvalue()
+
+    def get(url, **kwargs):
+        response = requests.Response()
+        response.url = url
+        response.status_code = 404 if url == primary else 200
+        assert url in {primary, fallback}
+        response._content = portable
+        response._content_consumed = True
+        return response
+
+    monkeypatch.setattr(build.requests, "get", get)
+    config = {"url": primary, "sha256": "0" * 64,
+              "fallback": {"url": fallback, "sha256": hashlib.sha256(portable).hexdigest() if valid_checksum else "0" * 64}}
+    extracted = tmp_path / "tools"
+    if not valid_checksum:
+        with pytest.raises(RuntimeError, match="checksum mismatch"):
+            build.prepare_ffmpeg(tmp_path, extracted, config)
+        assert not extracted.exists()
+        return
+
+    tools = build.prepare_ffmpeg(tmp_path, extracted, config)
+    assert {path.name: path.read_bytes() for path in tools.iterdir()} == binaries
+    assert (tools.parent / "LICENSE.txt").read_bytes() == b"LGPL notice"
+
+
 def test_youtube_node_helpers_use_the_desktop_runtime(monkeypatch, tmp_path):
     from videodl.modules.utils import youtubeutils
 
