@@ -69,7 +69,15 @@ class AutomationTests(unittest.TestCase):
                                   "daily_test_results/new-report.json": "{}\n",
                                   "启动桌面版.vbs": "unreviewed launcher\n",
                                   "desktop/__init__.py": "__version__ = '99.0.0'\n"})
-        result = automation.merge_upstream(self.root, revision)
+        self.git("config", "--local", "--unset", "user.name")
+        self.git("config", "--local", "--unset", "user.email")
+        self.git("config", "--local", "user.useConfigOnly", "true")
+        with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}):
+            for key in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+                os.environ.pop(key, None)
+            identity = automation.git(self.root, "var", "GIT_COMMITTER_IDENT", check=False)
+            self.assertNotEqual(identity.returncode, 0)
+            result = automation.merge_upstream(self.root, revision)
         self.assertFalse(result["blocked"])
         self.assertEqual((self.root / ".github/workflows/desktop-ci.yml").read_text(), "trusted\n")
         self.assertFalse((self.root / ".github/workflows/new.yml").exists())

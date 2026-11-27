@@ -15,6 +15,10 @@ OWNED = (".github", "desktop", "scripts/desktop_automation.py", "scripts/desktop
 GENERATED = ("daily_test_results",)
 SHA = re.compile(r"[0-9a-f]{40}")
 VERSION = re.compile(r"\d+\.\d+\.\d+")
+BOT_IDENTITY = (
+    "-c", "user.name=github-actions[bot]",
+    "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com",
+)
 
 
 def run(root, *args, check=True):
@@ -51,7 +55,7 @@ def changed_files(root, base, head="HEAD"):
 
 
 def commit(root, message):
-    git(root, "-c", "user.name=github-actions[bot]", "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com", "commit", "-m", message)
+    git(root, *BOT_IDENTITY, "commit", "-m", message)
 
 
 def pending(root, revision, conflicts):
@@ -70,7 +74,8 @@ def merge_upstream(root, revision):
     merge_base = git(root, "merge-base", base, revision).stdout.strip()
     incoming = changed_files(root, merge_base, revision)
     preserved = [p for p in incoming if owned(p) or generated(p)]
-    git(root, "merge", "--no-commit", "--no-ff", revision, check=False)
+    # Git checks committer identity before starting a merge, even with --no-commit.
+    git(root, *BOT_IDENTITY, "merge", "--no-commit", "--no-ff", revision, check=False)
     if git(root, "rev-parse", "--verify", "MERGE_HEAD", check=False).returncode:
         raise ValueError("无法建立上游合并，请检查 Git 历史。")
     # Keep the desktop automation, dependency lock and entrypoint exactly as
