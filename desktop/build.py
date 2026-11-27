@@ -14,7 +14,7 @@ import subprocess
 import sys
 import types
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import requests
 
@@ -137,33 +137,48 @@ def isolated_environment(stage: Path, tools: Path):
     return environment
 
 
-def media_tools():
-    config = json.loads((ROOT / "desktop/media-tools.json").read_text(encoding="utf-8"))
-    cache = ROOT / "build/media-cache"
-    cache.mkdir(parents=True, exist_ok=True)
+def download_media_tool(cached_file, resource):
+    candidate = cached_file
+    if not cached_file.exists():
+        candidate = cached_file.with_name(cached_file.name + ".part")
+        with requests.get(resource["url"], stream=True, timeout=(30, 120)) as response:
+            response.raise_for_status()
+            with candidate.open("wb") as output:
+                for chunk in response.iter_content(1024 * 1024):
+                    output.write(chunk)
+    with candidate.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    if digest != resource["sha256"]:
+        raise RuntimeError("Media tool checksum mismatch for " + cached_file.name)
+    if candidate != cached_file:
+        candidate.replace(cached_file)
+
+
+def unpack_portable_ffmpeg(archive, tools):
+    package = PurePosixPath("VideoDL Desktop")
+    packaged_tools = package / "_internal/tools"
+    tools.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive) as compressed:
+        dlls = [path for path in map(PurePosixPath, compressed.namelist())
+                if path.parent == packaged_tools and re.fullmatch(r"(?:av[a-z]+|sw[a-z]+)-\d+\.dll", path.name)]
+        for path in [packaged_tools / "ffmpeg.exe", packaged_tools / "ffprobe.exe", *dlls]:
+            with compressed.open(str(path)) as source, (tools / path.name).open("wb") as output:
+                shutil.copyfileobj(source, output)
+        (tools.parent / "LICENSE.txt").write_bytes(compressed.read(str(package / "FFmpeg-LICENSE.txt")))
+    return tools
+
+
+def prepare_ffmpeg(cache, extracted, config):
     archive = cache / config["url"].rsplit("/", 1)[1]
-    downloader_config = config["yt_dlp"]
-    downloader = cache / f"yt-dlp-{downloader_config['version']}.exe"
-    node_config = config["nodejs"]
-    node = cache / ("node-" + node_config["version"]) / "node.exe"
-    node.parent.mkdir(parents=True, exist_ok=True)
-    for cached_file, resource in ((archive, config), (downloader, downloader_config), (node, node_config)):
-        candidate = cached_file
-        if not cached_file.exists():
-            candidate = cached_file.with_name(cached_file.name + ".part")
-            with requests.get(resource["url"], stream=True, timeout=(30, 120)) as response:
-                response.raise_for_status()
-                with candidate.open("wb") as output:
-                    for chunk in response.iter_content(1024 * 1024):
-                        output.write(chunk)
-        with candidate.open("rb") as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        if digest != resource["sha256"]:
-            raise RuntimeError("Media tool checksum mismatch for " + cached_file.name)
-        if candidate != cached_file:
-            candidate.replace(cached_file)
-    extracted = WORK / "media-tools"
-    extracted.mkdir(parents=True, exist_ok=True)
+    try:
+        download_media_tool(archive, config)
+    except requests.HTTPError as error:
+        fallback = config.get("fallback")
+        if not fallback or error.response.status_code not in {404, 410}:
+            raise
+        portable = cache / fallback["url"].rsplit("/", 1)[1]
+        download_media_tool(portable, fallback)
+        return unpack_portable_ffmpeg(portable, extracted / archive.stem / "bin")
     with zipfile.ZipFile(archive) as compressed:
         archive_roots = {Path(entry.filename).parts[0] for entry in compressed.infolist()}
         if len(archive_roots) != 1:
@@ -173,7 +188,21 @@ def media_tools():
             if not path.resolve().is_relative_to(extracted.resolve()):
                 raise RuntimeError("Unexpected archive path")
             compressed.extract(entry, extracted)
-    tools = extracted / archive_roots.pop() / "bin"
+    return extracted / archive_roots.pop() / "bin"
+
+
+def media_tools():
+    config = json.loads((ROOT / "desktop/media-tools.json").read_text(encoding="utf-8"))
+    cache = ROOT / "build/media-cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    tools = prepare_ffmpeg(cache, WORK / "media-tools", config)
+    downloader_config = config["yt_dlp"]
+    downloader = cache / f"yt-dlp-{downloader_config['version']}.exe"
+    download_media_tool(downloader, downloader_config)
+    node_config = config["nodejs"]
+    node = cache / ("node-" + node_config["version"]) / "node.exe"
+    node.parent.mkdir(parents=True, exist_ok=True)
+    download_media_tool(node, node_config)
     shutil.copy2(downloader, tools / "yt-dlp.exe")
     shutil.copy2(node, tools / "node.exe")
     return tools, config
@@ -204,8 +233,11 @@ def main():
     shutil.copy2(ROOT / "desktop/assets/screenshot.png", package / "assets/screenshot.png")
     shutil.copy2(WORK / "public-build-audit.json", package / "public-build-audit.json")
     shutil.copy2(WORK / "build-info.json", package / "build-info.json")
+    ffmpeg_fallback = config.get("fallback")
     notice = ("VideoDL Desktop " + __version__ + "\nOriginal project: https://github.com/CharlesPikachu/videodl\nDesktop project: https://github.com/Chihiro521/videodl\n\n"
-              + config["version"] + "\nBinary: " + config["url"] + "\nFFmpeg source: " + config["source_url"] + "\nBuild scripts and dependency source recipes: " + config["build_source_url"]
+              + config["version"] + "\nBinary: " + config["url"]
+              + ("\nSame binaries in the portable release: " + ffmpeg_fallback["url"] if ffmpeg_fallback else "")
+              + "\nFFmpeg source: " + config["source_url"] + "\nBuild scripts and dependency source recipes: " + config["build_source_url"]
               + "\nFFmpeg uses shared libraries; they can be replaced in _internal/tools.\n"
               + "\nyt-dlp " + config["yt_dlp"]["version"] + "\nBinary: " + config["yt_dlp"]["url"]
               + "\nSource: " + config["yt_dlp"]["source_url"] + "\nLicense: Unlicense\n"

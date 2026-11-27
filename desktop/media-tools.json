@@ -4,6 +4,10 @@
   "sha256": "f9d002b1da11eb579ecfb1bade24b3ecc53cd2e7715434c9a3591868dc515471",
   "source_url": "https://github.com/FFmpeg/FFmpeg/tree/9bee1e603c",
   "build_source_url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/autobuild-2026-11-11-12-39",
+  "fallback": {
+    "url": "https://github.com/Chihiro521/videodl/releases/download/desktop-v0.5.5/VideoDL-Desktop-0.5.5-windows-x64.zip",
+    "sha256": "331ccbf9d622af2b792d35149687128c1c7258133ee94a5bc994b827f13a7df3"
+  },
   "nodejs": {
     "version": "24.22.3",
     "url": "https://nodejs.org/dist/v24.22.3/win-x64/node.exe",
